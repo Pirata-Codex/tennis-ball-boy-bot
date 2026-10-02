@@ -70,8 +70,8 @@ import policy as rl
 
 # ============================== tunables ==============================
 
-WHEEL_RADIUS = 0.09
-TRACK = 0.37                 # wheel-centre to wheel-centre
+WHEEL_RADIUS = 0.060   # redesign: 0.060 m drive wheels
+TRACK = 0.44                 # redesign: wheels at +/-0.22
 
 # speeds, m/s and rad/s
 VMAX = 0.62
@@ -96,7 +96,11 @@ SETTLE_TIME = 0.4            # s before the first drive command
 # a ball that reaches the door is drawn in behind the rollers; it cannot roll
 # back out because the surfaces keep pushing it in, and new balls shove the
 # earlier ones deeper into the bin. Nothing has to be wedged under the ball.
-DOOR_ROLLER_SPEED = 16.0     # rad/s magnitude; signs set in set_door_rollers()
+DOOR_ROLLER_SPEED = 40.0     # dual intake rollers; signs in set_door_rollers()
+# Full-width intake roller speed (rad/s). Negative spins the lower-front surface
+# REARWARD so a floor ball is swept into the hopper (the opposite sign ejected
+# it forward). Fast, per intake practice: it must outrun the robot's approach.
+INTAKE_SPEED = 75.0
 COLLECT_TIMEOUT = 6.0        # s
 COLLECT_ABORT_X = 0.20       # m: closer than this the ball is under the body
 
@@ -109,7 +113,7 @@ SEEK_BRAKE_ANGLE = math.radians(32.0)
 # door with its centre at about 0.42 + 0.025 + 0.034 = 0.48. ALIGN only has to
 # centre the ball on the 0.24 m bin and point the robot at it; COLLECT closes
 # the gap and the spinning rollers draw the ball in.
-INTAKE_X = 0.48              # ball centre at first contact with the door
+INTAKE_X = 0.30              # redesign: ball meets the full-width roller here
 ALIGN_X_MIN = 0.35           # closer than this while misaligned -> back off
 ALIGN_X_MAX = 0.85           # centred and inside this -> hand over to COLLECT
 ALIGN_Y_TOL = 0.05
@@ -143,9 +147,9 @@ STALL_TIME = 3.0              # s clamped to zero speed by the wall guard
 # hopper interior, robot frame (x forward, y left, z up) - the front bin.
 # A ball is "collected" once its centre is inside this box, i.e. behind the
 # door rollers.
-HOPPER_X = (0.04, 0.40)
-HOPPER_Y = (-0.10, 0.10)
-HOPPER_Z = (0.008, 0.145)
+HOPPER_X = (-0.22, 0.17)   # redesign: full-width flush bin
+HOPPER_Y = (-0.19, 0.19)
+HOPPER_Z = (0.004, 0.120)
 # How many balls the bin can usefully hold before it must be unloaded. The bin
 # interior is ~0.20 m across and a ball is 0.067 m, so this is a geometric
 # limit rather than an arbitrary number - past it the rollers cannot stack a
@@ -259,7 +263,7 @@ RL_MIN_UPDATES = 400
 # ---- attitude monitoring -------------------------------------------------
 TILT_WARN = 0.35             # rad
 TILT_FALLEN = 0.70           # rad
-RIDE_HEIGHT = 0.09
+RIDE_HEIGHT = 0.060
 FALL_RECOVER_TIME = 1.5
 FALL_GIVE_UP = 8.0
 FALL_MAX_ATTEMPTS = 3
@@ -273,12 +277,9 @@ SUPPORT_Y = (-0.21, 0.21)
 
 NOMINAL_PARTS = {
     'BODY_CHASSIS': (0.0, 0.0, 0.0),
-    'BODY_WHEEL_LEFT': (-0.10, 0.185, 0.09),
-    'BODY_WHEEL_RIGHT': (-0.10, -0.185, 0.09),
-    'BODY_SKID_LEFT': (0.15, 0.13, 0.03),
-    'BODY_SKID_RIGHT': (0.15, -0.13, 0.03),
-    'BODY_ARM_ROLLER_LEFT': (0.56, 0.16, 0.040),
-    'BODY_ARM_ROLLER_RIGHT': (0.56, -0.16, 0.040),
+    'BODY_WHEEL_LEFT': (-0.05, 0.22, 0.060),
+    'BODY_WHEEL_RIGHT': (-0.05, -0.22, 0.060),
+    'BODY_CASTER_REAR': (-0.19, 0.0, 0.030),
 }
 BODY_PARTS = tuple(NOMINAL_PARTS.keys())
 
@@ -2484,7 +2485,7 @@ class TennisCollector(Supervisor):
                 if self.state in ('DUMP', 'DONE', 'DOWN'):
                     spin = False
                 self.set_door_rollers(DOOR_ROLLER_SPEED if spin else 0.0)
-                self.set_roller(25.0 if spin else 0.0)
+                self.set_roller(INTAKE_SPEED if spin else 0.0)
                 if self.state == 'SEEK':
                     self.run_seek()
                 elif self.state == 'ALIGN':

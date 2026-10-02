@@ -2265,3 +2265,56 @@ the working straight-ahead case) before moving to the full court.
 The diagnosis (turning authority gated by state-oscillation, not the intake) is
 solid and measured; the fix is implemented but the capture result is unverified
 because the GPU/display went away mid-session.
+
+---
+
+## Phase 7 — from-scratch redesign (branch `redesign`): what worked, what didn't
+
+Per the user's request ("come up with a new design, search good practices, build
+it on a separate branch"), researched proven ball-collector designs (tennis-ball
+retrieval patents; FRC/VEX "full-width over-the-bumper" intakes; dual-roller
+intakes with ~3% error) and rebuilt the robot from scratch on branch `redesign`.
+
+**What the research says (and the design aimed for):**
+* FULL-WIDTH intake so a ball anywhere across the front is taken -- removes the
+  centring requirement that the old narrow mouth could never satisfy.
+* Intake roller just under a ball-diameter high; or dual rollers forming a nip.
+* Differential drive + low-friction ball casters for free pivoting / no wedge
+  pockets.
+
+**What worked:**
+* The new base -- differential drive (wheels ±0.22) + three low-friction ball
+  casters (one rear, two front) -- is **stable (max tilt 0.5°) and mobile**, and
+  it pivots freely. The casters are spheres, so balls roll around them instead of
+  wedging against a flat skid edge (the old ESCAPE-pin cause).
+* A critical front-support lesson: the intake/bin is front-heavy, so the front
+  needs casters too; with only a rear caster the robot tips onto its bin front
+  and is immovable.
+
+**What did NOT work -- the hard constraint (measured, repeatedly):**
+A **rigid** ball (Webots has no ball compliance) cannot be taken in by a roller:
+* a single transverse roller is a BARRIER when its bottom is below the ball top
+  (the ball cannot pass the roller's x-plane) and makes NO CONTACT when its
+  bottom is at/above the ball top -- there is no height that both grips and
+  passes. Both spin directions were tried; one bulldozes the ball forward, the
+  other flings it forward/out.
+* dual side rollers forming a nip are either too tight to pass (nip < 0.067 m,
+  the ball is blocked at the nip mouth) or too loose to grip (nip ≥ 0.067 m, the
+  rollers do not touch a centred ball). The literature's dual rollers work
+  because real/FRC balls and compliant belt rollers deform ~0.5–1 inch; the rigid
+  Webots ball and rigid rollers cannot.
+
+**The only mechanism that captured a rigid ball** in this project is the OLD
+**roll-under**: ride height > ball (0.09 m), an open floor-level entrance, and the
+ball passes UNDER a high roof into a flush bin as the robot drives over it, with
+a one-way flap / overhead paddle for retention. The redesign's full-width,
+roll-under variant needs ride height 0.09; a wheel/geometry interaction froze the
+wheels at that height and was not resolved before stopping.
+
+**Recommendation:** the functional baseline is `main` (captures and delivers,
+imperfectly). A reliable redesign should keep the new stable caster base but use
+the proven **roll-under** intake (ride height 0.09, open full-width floor
+entrance, flush bin, one-way retention flap) rather than any roller-through-nip
+intake, which rigid-body physics cannot make work. The roller "powered arms"
+idea is sound only for centring/retention, not for drawing a rigid ball through a
+gap.

@@ -38,6 +38,12 @@ WorldInfo {
       coulombFriction [ 1.80 1.80 1.80 1.80 ]
       rollingFriction 0.004 0.004 0.001
     }
+    ContactProperties {
+      material1 "caster"
+      material2 "hardFloor"
+      coulombFriction [ 0.03 0.03 0.03 0.03 ]
+      rollingFriction 0.0 0.0 0.0
+    }
   ]
 }
 Viewpoint {
