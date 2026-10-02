@@ -2265,3 +2265,31 @@ the working straight-ahead case) before moving to the full court.
 The diagnosis (turning authority gated by state-oscillation, not the intake) is
 solid and measured; the fix is implemented but the capture result is unverified
 because the GPU/display went away mid-session.
+
+---
+
+## Phase 8 — the fix that worked: ball-caster base on the proven intake
+
+Phase 7 established that no roller/flap takes in a rigid ball; the only capture
+that works is **roll-under**, which `main` already has. So instead of replacing
+the intake, the redesign's one clearly-good idea -- **low-friction ball casters**
+-- was ported onto `main`'s proven intake, keeping everything that captured.
+
+Replaced the two front **cylinder skids** with **sphere casters**
+(contactMaterial `caster`, coulombFriction 0.03, added to every world). A
+cylinder skid only rolls fore/aft, so it resists yaw (the robot could barely turn
+at low speed) and presents a flat edge that a ball wedges against (the ESCAPE
+pin). A sphere slides equally in all directions and a ball rolls around it.
+
+**Verified (`TENNIS_NO_POLICY=1`, deterministic):**
+
+| world | before (skids) | after (casters) |
+| --- | --- | --- |
+| `mech_test` (1 straight) | 1/1 delivered | **1/1 delivered** (no regression) |
+| `mech_test_offset` (3 off-centre) | bag 1, delivered 0 | **bag 2, delivered 2** |
+| ESCAPE time (offset) | ~25 s | **9.4 s** |
+
+This is the first change this round that improved delivery on an unforgiving
+layout without breaking the straight case. The lesson of Phases 6–8: fix the
+*base* (turning, wedge-free casters) and keep the *proven* roll-under intake;
+do not try to make a roller take in a rigid ball.
