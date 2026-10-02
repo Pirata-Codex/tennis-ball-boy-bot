@@ -1955,7 +1955,7 @@ class TennisCollector(Supervisor):
             # was reversing, so ESCAPE always ran to its 4 s cap and re-entered
             # on the next step, which is how it grew to 46 % of the run
             # (FINDINGS 5.32).
-            clear = lx < -ESCAPE_CLEAR_X or abs(ly) > UNDERBODY_Y
+            clear = lx < -ESCAPE_CLEAR_X or abs(ly) > (UNDERBODY_Y - 0.03)
         if clear or self.escape_time > ESCAPE_TIME:
             if self.escape_time >= ESCAPE_TIME and not clear:
                 # ran out of time without actually clearing the deck
@@ -1971,14 +1971,23 @@ class TennisCollector(Supervisor):
             self.state = 'SEEK'
             self.state_time = 0.0
             return
-        # reverse and turn away from the ball so it rolls off the side of the
-        # deck rather than staying directly under it
+        # Free the wedged ball. Reversing slowly barely turns (yaw authority is
+        # near zero at v<0), so the old reverse-and-turn left the ball pinned by
+        # a front wheel and ESCAPE looped to its cap, re-entering every step
+        # (31 % of a run). Instead alternate a hard in-place spin -- which the
+        # drivetrain CAN do when sustained, and which sweeps the body past the
+        # trapped ball and rotates it out from under -- with a straight reverse
+        # that then leaves it behind. Spin away from the ball's side.
         if ball is None:
-            self.drive(-BACK_SPEED, 0.6)
+            self.drive(-BACK_SPEED, 0.0)
         else:
             lx, ly, _ = self.to_robot(*ball['pos'])
-            side = 1.0 if ly >= 0.0 else -1.0
-            self.drive(-BACK_SPEED, 0.6 * side)
+            side = -1.0 if ly >= 0.0 else 1.0   # rotate the trapped side back
+            phase = int(self.escape_time / 0.7) % 2
+            if phase == 0:
+                self.drive(0.0, side * ALIGN_WMAX)     # spin to dislodge
+            else:
+                self.drive(-BACK_SPEED, 0.0)           # reverse to leave behind
         self.set_door_rollers(0.0)
 
     def run_recover(self):
