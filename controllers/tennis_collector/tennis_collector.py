@@ -275,9 +275,8 @@ NOMINAL_PARTS = {
     'BODY_WHEEL_RIGHT': (-0.10, -0.185, 0.09),
     'BODY_SKID_LEFT': (0.15, 0.175, 0.03),
     'BODY_SKID_RIGHT': (0.15, -0.175, 0.03),
-    'BODY_ARM_ROLLER_LEFT': (0.59, 0.205, 0.034),
-    'BODY_ARM_ROLLER_RIGHT': (0.59, -0.205, 0.034),
-    'BODY_FLAP': (0.39, 0, 0.200),
+    'BODY_ARM_ROLLER_LEFT': (0.56, 0.16, 0.040),
+    'BODY_ARM_ROLLER_RIGHT': (0.56, -0.16, 0.040),
 }
 BODY_PARTS = tuple(NOMINAL_PARTS.keys())
 
@@ -569,7 +568,11 @@ class TennisCollector(Supervisor):
         try:
             if not os.path.isdir(TELEMETRY_DIR):
                 os.makedirs(TELEMETRY_DIR)
-            self.trace_path = os.path.join(
+            # TENNIS_TRACE_FILE overrides the trace path, so concurrent or
+            # back-to-back runs never write the same file (world_tag() falls back
+            # to 'world' when getWorld().getUrl() is unavailable on this build,
+            # so every run otherwise collided on trace_world.jsonl).
+            self.trace_path = os.environ.get('TENNIS_TRACE_FILE') or os.path.join(
                 TELEMETRY_DIR, 'trace_%s.jsonl' % self.world_tag())
             self.trace = open(self.trace_path, 'w', encoding='utf-8')
             self.trace.write(json.dumps({

@@ -140,40 +140,104 @@ PROTO TennisCollectorRobot [
           }
 
           # ==============================================================
-          # CENTRING FUNNEL (floor-level side guides)
+          # POWERED GATHERING ARMS (floor-level V rollers)
           # ==============================================================
-          # Two angled rails that funnel an off-centre floor ball to the mouth.
-          # The old wings reached only +/-0.126 at the rear, so a ball that
-          # drifted to ly~0.17 during approach was never caught: it slid past
-          # the wing, lodged beside the front wheel and trapped the robot
-          # (observed directly). These rails open to +/-0.22 at the front
-          # (x=0.60) and close to +/-0.06 at the mouth (x=0.44), a 0.12 m gap
-          # wider than the 0.067 m ball, so the ball is guided to centre, not
-          # pinched. Each rail runs floor-to-0.11 (bottom at z=0.002, kept off
-          # the floor per FINDINGS 5.6) so a ball cannot slip underneath.
-          # Geometry: centre (0.52, +/-0.14, 0.057), 45 deg in plane, length
-          # 0.226 -> ends at (0.60,+/-0.22) and (0.44,+/-0.06).
-          # left funnel rail
-          Transform {
-            translation 0.52  0.14 0.057
-            rotation 0 0 1  0.7854
-            children [
-              Shape {
-                appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.226 0.012 0.11 }
+          # Two driven rollers splayed into a V, wide at the front and narrowing
+          # to the mouth. Each lies along its arm (axis 0.894 +/-0.447 0, i.e.
+          # 26.6 deg off forward) at floor height (centre z=0.040, radius 0.032
+          # -> contacts a ball on its lower half). The controller spins them via
+          # set_door_rollers(): left at +speed, right at -speed, so BOTH inner
+          # surfaces travel inward-and-rearward and actively carry an off-centre
+          # ball toward the centreline and into the mouth, instead of a passive
+          # wall that only stopped the ball at an angle. Centre (0.56,+/-0.16,
+          # 0.04); inner ends ~(0.41,+/-0.08) just ahead of the bin mouth, outer
+          # ends ~(0.71,+/-0.24). Entirely forward of the bin (x>=0.41) and low
+          # (z<=0.072) so they clear the bin walls, the drive wheels and the mast
+          # lidars -- the mistakes that made the tall paddle-wheel shove the robot
+          # around and corrupt perception.
+          # left gathering arm
+          HingeJoint {
+            jointParameters HingeJointParameters {
+              axis   0.894 0.447 0
+              anchor 0.56 0.16 0.040
+            }
+            device [
+              RotationalMotor {
+                name        "armRollerLeftMotor"
+                maxTorque   2.0
+                maxVelocity 40
+                minPosition -1e6
+                maxPosition 1e6
+                sound ""
               }
             ]
+            endPoint DEF BODY_ARM_ROLLER_LEFT Solid {
+              name       "armRollerLeft"
+              translation 0.56 0.16 0.040
+              contactMaterial "roller"
+              children [
+                Transform {
+                  rotation -0.447 0.894 0 1.5708
+                  children [
+                    Shape {
+                      appearance PBRAppearance { baseColor 0.90 0.45 0.10 metalness 0.0 roughness 1.0 }
+                      geometry Cylinder { radius 0.032 height 0.34 }
+                    }
+                  ]
+                }
+              ]
+              boundingObject Transform {
+                rotation -0.447 0.894 0 1.5708
+                children [ Cylinder { radius 0.032 height 0.34 } ]
+              }
+              physics Physics {
+                density -1
+                mass 0.10
+                damping Damping { linear 0.05 angular 0.05 }
+              }
+            }
           }
-          # right funnel rail
-          Transform {
-            translation 0.52 -0.14 0.057
-            rotation 0 0 1 -0.7854
-            children [
-              Shape {
-                appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.226 0.012 0.11 }
+          # right gathering arm
+          HingeJoint {
+            jointParameters HingeJointParameters {
+              axis   0.894 -0.447 0
+              anchor 0.56 -0.16 0.040
+            }
+            device [
+              RotationalMotor {
+                name        "armRollerRightMotor"
+                maxTorque   2.0
+                maxVelocity 40
+                minPosition -1e6
+                maxPosition 1e6
+                sound ""
               }
             ]
+            endPoint DEF BODY_ARM_ROLLER_RIGHT Solid {
+              name       "armRollerRight"
+              translation 0.56 -0.16 0.040
+              contactMaterial "roller"
+              children [
+                Transform {
+                  rotation 0.447 0.894 0 1.5708
+                  children [
+                    Shape {
+                      appearance PBRAppearance { baseColor 0.90 0.45 0.10 metalness 0.0 roughness 1.0 }
+                      geometry Cylinder { radius 0.032 height 0.34 }
+                    }
+                  ]
+                }
+              ]
+              boundingObject Transform {
+                rotation 0.447 0.894 0 1.5708
+                children [ Cylinder { radius 0.032 height 0.34 } ]
+              }
+              physics Physics {
+                density -1
+                mass 0.10
+                damping Damping { linear 0.05 angular 0.05 }
+              }
+            }
           }
 
           # ==============================================================
@@ -513,17 +577,8 @@ PROTO TennisCollectorRobot [
               translation 0.32 0 0.008
               children [ Box { size 0.006 0.22 0.012 } ]
             }
-            # Centring funnel rails (match the visuals above)
-            Transform {
-              translation 0.52  0.14 0.057
-              rotation 0 0 1  0.7854
-              children [ Box { size 0.226 0.012 0.11 } ]
-            }
-            Transform {
-              translation 0.52 -0.14 0.057
-              rotation 0 0 1 -0.7854
-              children [ Box { size 0.226 0.012 0.11 } ]
-            }
+            # (the gathering arms are separate jointed Solids with their own
+            # collision, so they are NOT part of the chassis bounding object)
             Transform {
               translation -0.28 0 0.30
               children [ Box { size 0.05 0.05 0.50 } ]
