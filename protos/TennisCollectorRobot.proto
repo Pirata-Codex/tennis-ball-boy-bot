@@ -140,27 +140,38 @@ PROTO TennisCollectorRobot [
           }
 
           # ==============================================================
-          # FLARED GATHERING WINGS (Funneling Side Guides)
+          # CENTRING FUNNEL (floor-level side guides)
           # ==============================================================
-          # left flared wing
+          # Two angled rails that funnel an off-centre floor ball to the mouth.
+          # The old wings reached only +/-0.126 at the rear, so a ball that
+          # drifted to ly~0.17 during approach was never caught: it slid past
+          # the wing, lodged beside the front wheel and trapped the robot
+          # (observed directly). These rails open to +/-0.22 at the front
+          # (x=0.60) and close to +/-0.06 at the mouth (x=0.44), a 0.12 m gap
+          # wider than the 0.067 m ball, so the ball is guided to centre, not
+          # pinched. Each rail runs floor-to-0.11 (bottom at z=0.002, kept off
+          # the floor per FINDINGS 5.6) so a ball cannot slip underneath.
+          # Geometry: centre (0.52, +/-0.14, 0.057), 45 deg in plane, length
+          # 0.226 -> ends at (0.60,+/-0.22) and (0.44,+/-0.06).
+          # left funnel rail
           Transform {
-            translation 0.48  0.175 0.060
-            rotation 0 0 1  0.420
+            translation 0.52  0.14 0.057
+            rotation 0 0 1  0.7854
             children [
               Shape {
                 appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.24 0.012 0.11 }
+                geometry Box { size 0.226 0.012 0.11 }
               }
             ]
           }
-          # right flared wing
+          # right funnel rail
           Transform {
-            translation 0.48 -0.175 0.060
-            rotation 0 0 1 -0.420
+            translation 0.52 -0.14 0.057
+            rotation 0 0 1 -0.7854
             children [
               Shape {
                 appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.24 0.012 0.11 }
+                geometry Box { size 0.226 0.012 0.11 }
               }
             ]
           }
@@ -502,16 +513,16 @@ PROTO TennisCollectorRobot [
               translation 0.32 0 0.008
               children [ Box { size 0.006 0.22 0.012 } ]
             }
-            # Flared gathering wings
+            # Centring funnel rails (match the visuals above)
             Transform {
-              translation 0.48  0.175 0.060
-              rotation 0 0 1  0.420
-              children [ Box { size 0.24 0.012 0.11 } ]
+              translation 0.52  0.14 0.057
+              rotation 0 0 1  0.7854
+              children [ Box { size 0.226 0.012 0.11 } ]
             }
             Transform {
-              translation 0.48 -0.175 0.060
-              rotation 0 0 1 -0.420
-              children [ Box { size 0.24 0.012 0.11 } ]
+              translation 0.52 -0.14 0.057
+              rotation 0 0 1 -0.7854
+              children [ Box { size 0.226 0.012 0.11 } ]
             }
             Transform {
               translation -0.28 0 0.30

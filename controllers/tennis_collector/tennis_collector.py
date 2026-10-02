@@ -77,6 +77,10 @@ TRACK = 0.37                 # wheel-centre to wheel-centre
 VMAX = 0.62
 WMAX = 2.4
 ALIGN_WMAX = 1.8
+# Minimum in-place turn rate during final alignment. Below this the robot's yaw
+# static friction swallows the command and it does not rotate at all, so small
+# heading errors never get corrected (the robot drove past off-centre balls).
+ALIGN_W_MIN = 0.9
 CREEP_SPEED = 0.045
 BACK_SPEED = 0.22
 
@@ -1798,18 +1802,25 @@ class TennisCollector(Supervisor):
 
         centered = abs(ly) < ALIGN_Y_TOL and abs(bearing) < ALIGN_BEARING_TOL
         if not centered:
-            if lx < 0.75:
-                # Close in: rotating here would sweep the roller arms through
-                # the ball and bat it away (seen as an endless spin in
-                # ALIGN). Instead creep straight, letting the rollers steer it
-                # in, and let COLLECT take over.
-                world_heading = wrap_angle(math.atan2(
-                    ball['pos'][1] - self.pose_y,
-                    ball['pos'][0] - self.pose_x) - self.pose_h)
-                self.drive(0.10, clamp(0.5 * world_heading, -0.5, 0.5))
-                return abs(world_heading) < ALIGN_BEARING_TOL
-            # far away: turn on the spot to line the mouth up with the ball
-            self.drive(0.0, clamp(2.0 * bearing, -ALIGN_WMAX, ALIGN_WMAX))
+            # Turn on the spot to put the ball dead ahead BEFORE closing in.
+            # The old code crept straight forward whenever lx < 0.75 "so the
+            # roller arms steer it in" -- but there are no roller arms, so the
+            # robot sailed straight past every off-centre ball until it lodged
+            # by a front wheel.
+            #
+            # A plain proportional turn is not enough either: there is a
+            # static-friction deadzone in yaw (a large heading error turns at
+            # ~10 deg/s, but a small w command -- 0.2 rad/s -- produces no
+            # rotation at all, so the robot could never null out the last few
+            # degrees and settle the ball on centre). Command at least
+            # ALIGN_W_MIN in the needed direction to break static friction,
+            # bang-bang, until the ball is within tolerance.
+            w = clamp(2.5 * bearing, -ALIGN_WMAX, ALIGN_WMAX)
+            if abs(w) < ALIGN_W_MIN:
+                w = math.copysign(ALIGN_W_MIN, w)
+            # Pure pivot (no forward) so the turn is sustained and the robot
+            # does not orbit the ball; the deadzone below (centred) stops it.
+            self.drive(0.0, w)
             return False
 
         forward = clamp(0.6 * (lx - 0.62), 0.0, 0.14)
@@ -1850,9 +1861,16 @@ class TennisCollector(Supervisor):
         lx, ly, _ = self.to_robot(*self.target['pos'])
         self.state_time += self.dt
 
-        # if the ball has slipped off the narrow door centreline, re-align
-        # instead of bulldozing the roller
-        if abs(ly) > 0.035:
+        # Re-align only if the ball is still well ahead AND badly off-centre.
+        # The old test (abs(ly) > 0.035) bounced to ALIGN at an offset ALIGN
+        # itself hands over at, so the two states oscillated every few steps.
+        # That oscillation is what actually crippled turning: each turn command
+        # was cancelled by a forward command before the wheel-acceleration ramp
+        # could establish the pivot (the drivetrain turns 40-100 deg/s when a
+        # turn is *sustained*, near 0 when it is interrupted). Hysteresis plus a
+        # lx gate lets COLLECT commit: once the ball is at the mouth the funnel
+        # and roller finish the centring instead of bouncing back to ALIGN.
+        if lx > 0.55 and abs(ly) > 0.10:
             self.state = 'ALIGN'
             self.state_time = 0.0
             return
@@ -2377,6 +2395,25 @@ class TennisCollector(Supervisor):
 
             self.update_odometry(self.dt)
             self.monitor_attitude()
+
+            # --- drivetrain turn probe: TENNIS_SPIN="v,w" drives a constant
+            # (v, w) and logs the achieved yaw rate, bypassing the state machine.
+            if os.environ.get('TENNIS_SPIN'):
+                pv, pw = (float(x) for x in os.environ['TENNIS_SPIN'].split(','))
+                self.drive(pv, pw)
+                if not hasattr(self, '_spin_last'):
+                    self._spin_last = (self.sim_time, self.pose_h)
+                elif self.sim_time - self._spin_last[0] >= 0.5:
+                    dyaw = wrap_angle(self.pose_h - self._spin_last[1])
+                    with open(os.path.join(TELEMETRY_DIR, 'spin_probe.csv'), 'a') as fh:
+                        fh.write('%.2f,%.3f,%.3f,%.3f,%.1f\n' % (
+                            self.sim_time, pv, pw, self.cmd_w,
+                            math.degrees(dyaw) / (self.sim_time - self._spin_last[0])))
+                    self._spin_last = (self.sim_time, self.pose_h)
+                if self.step(self.timestep) == -1:
+                    break
+                continue
+
             self.update_ball_states()
             self.bag = self.bag_count()
             self.check_attitude()

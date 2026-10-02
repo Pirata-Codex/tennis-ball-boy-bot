@@ -2146,3 +2146,122 @@ and the recommendation to grow the buffer before trusting the policy to drive.
 **Still unproven after Phase 5:** `tennis_court_dirt.wbt` has not been
 re-simulated since the torque, bounding-object and friction fixes, so the
 low-grip surface remains untested with all of the above.
+---
+
+## Phase 6 — the real gathering blocker: turning, not the intake
+
+Opened with the complaint that "the algorithms do not work well and the robot
+architecture is not good to gather the balls." Worked on a machine *with* Webots
+(`E:\Apps\Webots\msys64\mingw64\bin\webots.exe`, R2025a) so changes could be
+measured, not only reasoned about. Git version control was initialised this
+phase (baseline commit + one commit per verified step); the GitHub remote is
+`Pirata-Codex/tennis-ball-boy-bot`.
+
+### 6.1 A deterministic test bench (`TENNIS_NO_POLICY`)
+
+The first two "identical" baseline runs disagreed (2/3 then 1/3 delivered on the
+same world and code). Cause: the controller **loads and mutates
+`policy_weights.json` and `experience.jsonl` every run**, and once the policy has
+> `RL_MIN_UPDATES` it starts influencing `SEEK`, so behaviour drifts between
+invocations. Added `RL_ENABLED = os.environ.get('TENNIS_NO_POLICY', ...)`: with
+`TENNIS_NO_POLICY=1` the deterministic DWA planner drives and repeated runs are
+bit-identical. **All mechanism/controller A/B testing must set this**, or the
+result is confounded by the drifting policy. The earlier "best = 4/10" numbers
+were partly the policy getting lucky, not a reproducible mechanism result.
+
+`worlds/mech_test_offset.wbt` (three off-centre balls) was added as the bench;
+the single straight-ahead `mech_test.wbt` already captures and so hides the bug.
+
+### 6.2 The controller is written for a robot that does not exist
+
+`tennis_collector.py` fetches `armRollerLeftMotor`, `armRollerRightMotor` and
+`unloadGate`, and `NOMINAL_PARTS` lists `BODY_ARM_ROLLER_*` / `BODY_FLAP`. **None
+of these exist in `TennisCollectorRobot.proto`** — the PROTO on disk is the
+single overhead-paddle design, and every `getDevice` for the arms returns `None`
+(silently skipped by the `if motor is not None` guard). So §5.24's "two
+horizontal roller arms (use this)" was written up but never actually shipped in
+the rig, and `set_door_rollers()` has been a no-op on every run. The intake that
+*does* run is the overhead paddle, which §5.23 item 4 had recorded as a failure.
+Delivery itself is a supervisor teleport (`run_dump` `setPose`), so **delivery is
+not a mechanism problem**: the whole difficulty is getting a ball into the hopper
+box and keeping it there.
+
+### 6.3 The paddle does not touch a floor ball — but that is not the main fault
+
+Rendered observation (user screenshot): balls sit on the floor and the overhead
+paddle spins *above* them. Its lowest point (~0.060) is at/above the ball top
+(0.067), so a floor ball is barely grazed. A first rebuild as a low paddle-wheel
+(hub clear of the ball, blades reaching to z≈0.027) was reverted: positioned at
+x=0.40 its rear swing collided with the bin mouth/ledge and the physics shoved
+the robot *backwards* across the court. Lesson: any powered wheel at the mouth
+must have its full blade swing clear of the bin walls and the drop-step ledge,
+and must not enter the mast-lidar view.
+
+Deterministically (`TENNIS_NO_POLICY=1`): the **straight** ball is captured
+(`max bag 1`), the three **offset** balls are not (`max bag 0`). So the paddle
+*can* ingest a centred ball; the failure is purely that off-centre balls are
+never centred.
+
+### 6.4 Root cause: the robot cannot make small turns at low speed
+
+Tracing the offset approach: `ly` (ball offset in the robot frame) stays pinned
+near its initial value the whole approach — the robot drives **straight past**
+the ball without turning toward it, then the ball lodges by a front wheel and
+`ESCAPE` loops (the "gets behind the left front wheel and stops" the user saw).
+
+A `TENNIS_SPIN="v,w"` probe (bypasses the state machine, logs achieved yaw rate
+to `logs/spin_probe.csv`) settled it:
+
+| command (v, w) | achieved yaw rate |
+| --- | --- |
+| v=0.00, w=0.9 (sustained) | **41 deg/s** |
+| v=0.00, w=1.8 (sustained) | **81 deg/s** |
+| v=0.00, w=2.4 (sustained) | **107 deg/s** |
+| w=0.9 **inside the state machine** | **~1.6 deg/s** |
+
+The drivetrain turns in place **fine** when the command is *sustained*. It turned
+at ~0 inside the state machine because `ALIGN` and `COLLECT` **oscillate every
+few steps** (ALIGN hands over at `ly<0.05`, COLLECT bounced back at `ly>0.035`),
+and each turn command was cancelled by a forward command before the
+wheel-acceleration ramp (`WHEEL_ACCEL`) could establish the pivot. **The chatter
+did not just waste time — it is what crippled turning.** Lowering the front-skid
+friction (0.08→0.01) changed nothing, confirming the skids are not the cause.
+
+### 6.5 The fix (implemented; verification pending a GPU session)
+
+Three controller changes plus one geometry change, aimed at *sustaining* the turn
+and letting a centred ball be ingested:
+
+1. **ALIGN turns in place, sustained, with a floor on the turn rate.** When the
+   ball is not centred the robot now pivots (v=0) at `clamp(2.5*bearing)` but at
+   least `ALIGN_W_MIN = 0.9` rad/s (a smaller command sits in the yaw
+   static-friction deadzone and does nothing), until the ball is within
+   tolerance. The old code crept straight forward "so the roller arms steer it
+   in" — there are no roller arms.
+2. **COLLECT commits instead of bouncing.** Re-align only if the ball is still
+   well ahead *and* badly off (`lx>0.55 and |ly|>0.10`), ending the
+   ALIGN↔COLLECT oscillation that was interrupting the turn.
+3. **A floor-level centring funnel** replaces the too-wide flared wings: it opens
+   to ±0.22 at the front (x=0.60) and closes to ±0.06 at the mouth (x=0.44), a
+   0.12 m gap wider than the ball, reaching floor-to-0.11 so a ball cannot slip
+   beside a front wheel.
+
+Verified before the session lost its GPU: change 1 alone removed the `ESCAPE`
+deadlock (distance 1.9→12.3 m, zero `ESCAPE` time). **Not yet verified:** that
+the combined set captures the offset balls (`max bag>0`) — the Windows session
+was disconnected mid-iteration, which drops the GPU context, and Webots R2025a
+cannot initialise its renderer without one (the lidars need GPU rendering, so
+`QT_QPA_PLATFORM=offscreen` software rendering hangs at init). **To verify, on a
+machine with an active display:**
+
+    set TENNIS_NO_POLICY=1
+    webots --batch --mode=fast --no-rendering --stdout --stderr worlds/mech_test_offset.wbt
+    python tools/analyze_trace.py logs/trace_world.jsonl   # want: max bag > 0
+
+then the same on `mech_test.wbt` (must stay `max bag 1`, i.e. no regression of
+the working straight-ahead case) before moving to the full court.
+
+**Still unproven after Phase 6:** reliable collect-and-deliver on the full court.
+The diagnosis (turning authority gated by state-oscillation, not the intake) is
+solid and measured; the fix is implemented but the capture result is unverified
+because the GPU/display went away mid-session.
