@@ -82,17 +82,8 @@ PROTO TennisCollectorRobot [
               }
             ]
           }
-          # entry lip (x = 0.16, height 12 mm) -- low enough for a driven ball
-          # to roll over, high enough to retain a resting one
-          Transform {
-            translation 0.16 0 0.006
-            children [
-              Shape {
-                appearance PBRAppearance { baseColor 0.28 0.28 0.30 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.010 0.38 0.012 }
-              }
-            ]
-          }
+          # (no entry lip: the one-way flap provides retention, and a lip would
+          # block the ball from rolling in under the flap at floor level)
           # left bin wall
           Transform {
             translation -0.03 0.192 0.055 children [
@@ -130,49 +121,36 @@ PROTO TennisCollectorRobot [
           }
 
           # ============================================================
-          # DUAL INTAKE ROLLERS  (vertical, forming a ball-width nip)
-          # Two powered vertical rollers at the mouth, one each side. The ball
-          # enters the gap, is gripped on its LEFT and RIGHT by the roller
-          # surfaces (not pinned above by a transverse drum -- a single drum is
-          # unavoidably a barrier: low enough to grip is low enough to block),
-          # and the counter-rotating rollers drag it REARWARD through the nip
-          # into the open-top bin. This is the proven dual-roller intake (≈3%
-          # error in the literature) and the "powered arms that move the ball
-          # to centre" the user asked for. Inner faces at y=+/-0.033 -> a 0.066 m
-          # nip, just under the ball, so both faces grip. Driven by
-          # set_door_rollers (armRollerLeftMotor +, armRollerRightMotor -).
-          # ------- left intake roller (axis vertical) -------
+          # ONE-WAY INTAKE FLAP  (passive cat-flap gate into the open-top bin)
+          # The proven way to take in a RIGID ball: the robot drives over the
+          # ball, the ball pushes this light full-width flap INWARD (it hinges up
+          # about its top edge), passes under the lifted flap into the open-top
+          # bin, and the flap falls back behind it -- blocking the ball from
+          # rolling out (minStop stops it swinging outward). No roller is a
+          # barrier and nothing has to squeeze through a nip. Full width so a
+          # ball anywhere across the front is taken.
           HingeJoint {
-            jointParameters HingeJointParameters { axis 0 0 1 anchor 0.18 0.073 0.050 }
-            device [
-              RotationalMotor { name "armRollerLeftMotor" maxTorque 2.5 maxVelocity 60 minPosition -1e6 maxPosition 1e6 sound "" }
-            ]
-            endPoint DEF BODY_ARM_ROLLER_LEFT Solid {
-              name "armRollerLeft"
-              translation 0.18 0.073 0.050
-              contactMaterial "roller"
-              children [
-                Shape { appearance PBRAppearance { baseColor 0.90 0.45 0.10 roughness 1.0 } geometry Cylinder { radius 0.040 height 0.08 } }
-              ]
-              boundingObject Cylinder { radius 0.040 height 0.08 }
-              physics Physics { density -1 mass 0.12 damping Damping { linear 0.05 angular 0.05 } }
+            jointParameters HingeJointParameters {
+              axis 0 1 0 anchor 0.27 0 0.090
+              minStop -0.02 maxStop 2.2
             }
-          }
-          # ------- right intake roller -------
-          HingeJoint {
-            jointParameters HingeJointParameters { axis 0 0 1 anchor 0.18 -0.073 0.050 }
-            device [
-              RotationalMotor { name "armRollerRightMotor" maxTorque 2.5 maxVelocity 60 minPosition -1e6 maxPosition 1e6 sound "" }
-            ]
-            endPoint DEF BODY_ARM_ROLLER_RIGHT Solid {
-              name "armRollerRight"
-              translation 0.18 -0.073 0.050
-              contactMaterial "roller"
+            endPoint DEF BODY_FLAP Solid {
+              name "intakeFlap"
+              translation 0.27 0 0.090
+              contactMaterial "chassis"
               children [
-                Shape { appearance PBRAppearance { baseColor 0.90 0.45 0.10 roughness 1.0 } geometry Cylinder { radius 0.040 height 0.08 } }
+                Transform {
+                  translation 0 0 -0.022
+                  children [
+                    Shape {
+                      appearance PBRAppearance { baseColor 0.85 0.35 0.08 roughness 0.9 }
+                      geometry Box { size 0.006 0.34 0.044 }
+                    }
+                  ]
+                }
               ]
-              boundingObject Cylinder { radius 0.040 height 0.08 }
-              physics Physics { density -1 mass 0.12 damping Damping { linear 0.05 angular 0.05 } }
+              boundingObject Transform { translation 0 0 -0.022 children [ Box { size 0.006 0.34 0.044 } ] }
+              physics Physics { density -1 mass 0.02 }
             }
           }
 
@@ -287,7 +265,6 @@ PROTO TennisCollectorRobot [
           children [
             Transform { translation -0.19 0 0.075 children [ Box { size 0.16 0.40 0.05 } ] }
             Transform { translation -0.03 0 0.006 children [ Box { size 0.38 0.38 0.008 } ] }
-            Transform { translation 0.16 0 0.006 children [ Box { size 0.010 0.38 0.012 } ] }
             Transform { translation -0.03 0.192 0.055 children [ Box { size 0.38 0.016 0.10 } ] }
             Transform { translation -0.03 -0.192 0.055 children [ Box { size 0.38 0.016 0.10 } ] }
             Transform { translation -0.225 0 0.055 children [ Box { size 0.016 0.38 0.10 } ] }
