@@ -1,0 +1,19 @@
+#VRML_SIM R2025a utf8
+EXTERNPROTO "../protos/TennisCollectorRobot.proto"
+WorldInfo {
+  title "settle check - 8 ms timestep, joint stiffness and contact stability"
+  basicTimeStep 8
+  randomSeed 1
+}
+Viewpoint { position -4 -4 2 orientation 0.7 0.5 0.3 2.0 }
+Background { skyColor [ 0.4 0.7 1 ] }
+Solid {
+  name "floor"
+  translation 0 0 -0.05
+  children [ Shape { geometry Box { size 20 20 0.1 } } ]
+  boundingObject Box { size 20 20 0.1 }
+}
+TennisCollectorRobot {
+  translation 0 0 0
+  controller "settle"
+}

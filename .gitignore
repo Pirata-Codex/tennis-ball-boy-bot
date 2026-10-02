@@ -1,0 +1,14 @@
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor / IDE
+.idea/
+
+# Backups and archives
+*.bak
+*.zip
+
+# Webots temp
+*.wbproj

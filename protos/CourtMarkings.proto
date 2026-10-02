@@ -1,0 +1,194 @@
+#VRML_SIM R2025a utf8
+# license: Apache License 2.0
+# license url: https://www.apache.org/licenses/LICENSE-2.0
+# ---------------------------------------------------------------------------
+# CourtMarkings - purely decorative court lines and the collector's drop zone.
+#
+# Two Webots rules shape the way this file is written:
+#   * a Shape node has no translation/rotation of its own, so every positioned
+#     shape is wrapped in a Transform;
+#   * the same goes for Group, so the root is a Transform too.
+#
+# Everything here is a Shape with no bounding object and no physics, so the
+# markings can never disturb the robot, the balls, or the contact materials of
+# whichever world they are dropped into.
+# ---------------------------------------------------------------------------
+
+PROTO CourtMarkings [
+  field SFVec3f translation    0 0 0
+  field SFColor lineColor      0.93 0.93 0.93
+  field SFColor zoneColor      0.95 0.75 0.10
+  field SFVec3f dropZoneCenter -4.9 1.8 0
+]
+{
+  Transform {
+    translation IS translation
+    children [
+
+      # ---------- baselines at x = +/- 5.5 ----------
+      Transform {
+        translation -5.5 0 0.002
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor IS lineColor metalness 0 roughness 0.9 }
+            geometry Box { size 0.05 5.0 0.004 }
+          }
+        ]
+      }
+      Transform {
+        translation 5.5 0 0.002
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor IS lineColor metalness 0 roughness 0.9 }
+            geometry Box { size 0.05 5.0 0.004 }
+          }
+        ]
+      }
+
+      # ---------- doubles sidelines at y = +/- 2.5 ----------
+      Transform {
+        translation 0 2.5 0.002
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor IS lineColor metalness 0 roughness 0.9 }
+            geometry Box { size 11.0 0.05 0.004 }
+          }
+        ]
+      }
+      Transform {
+        translation 0 -2.5 0.002
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor IS lineColor metalness 0 roughness 0.9 }
+            geometry Box { size 11.0 0.05 0.004 }
+          }
+        ]
+      }
+
+      # ---------- service lines at x = +/- 3.4 ----------
+      Transform {
+        translation -3.4 0 0.002
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor IS lineColor metalness 0 roughness 0.9 }
+            geometry Box { size 0.05 4.0 0.004 }
+          }
+        ]
+      }
+      Transform {
+        translation 3.4 0 0.002
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor IS lineColor metalness 0 roughness 0.9 }
+            geometry Box { size 0.05 4.0 0.004 }
+          }
+        ]
+      }
+
+      # ---------- centre service line ----------
+      Transform {
+        translation 0 0 0.002
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor IS lineColor metalness 0 roughness 0.9 }
+            geometry Box { size 0.05 4.0 0.004 }
+          }
+        ]
+      }
+
+      # ---------- centre marks where the service lines meet the sidelines ------
+      Transform {
+        translation -3.4 2.0 0.002
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor IS lineColor metalness 0 roughness 0.9 }
+            geometry Box { size 0.30 0.05 0.004 }
+          }
+        ]
+      }
+      Transform {
+        translation -3.4 -2.0 0.002
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor IS lineColor metalness 0 roughness 0.9 }
+            geometry Box { size 0.30 0.05 0.004 }
+          }
+        ]
+      }
+      Transform {
+        translation 3.4 2.0 0.002
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor IS lineColor metalness 0 roughness 0.9 }
+            geometry Box { size 0.30 0.05 0.004 }
+          }
+        ]
+      }
+      Transform {
+        translation 3.4 -2.0 0.002
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor IS lineColor metalness 0 roughness 0.9 }
+            geometry Box { size 0.30 0.05 0.004 }
+          }
+        ]
+      }
+
+      # ---------- drop zone: padded fill plus a four-sided outline ----------
+      Transform {
+        translation IS dropZoneCenter
+        children [
+          Transform {
+            children [
+              Shape {
+                appearance PBRAppearance {
+                  baseColor IS zoneColor
+                  metalness 0
+                  roughness 0.9
+                  transparency 0.55
+                }
+                geometry Box { size 1.7 1.5 0.004 }
+              }
+            ]
+          }
+          Transform {
+            translation 0 0.75 0.003
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor IS zoneColor metalness 0 roughness 0.9 }
+                geometry Box { size 1.7 0.06 0.006 }
+              }
+            ]
+          }
+          Transform {
+            translation 0 -0.75 0.003
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor IS zoneColor metalness 0 roughness 0.9 }
+                geometry Box { size 1.7 0.06 0.006 }
+              }
+            ]
+          }
+          Transform {
+            translation 0.85 0 0.003
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor IS zoneColor metalness 0 roughness 0.9 }
+                geometry Box { size 0.06 1.5 0.006 }
+              }
+            ]
+          }
+          Transform {
+            translation -0.85 0 0.003
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor IS zoneColor metalness 0 roughness 0.9 }
+                geometry Box { size 0.06 1.5 0.006 }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

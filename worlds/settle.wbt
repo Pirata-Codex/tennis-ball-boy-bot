@@ -1,0 +1,70 @@
+#VRML_SIM R2025a utf8
+EXTERNPROTO "../protos/TennisCollectorRobot.proto"
+WorldInfo {
+  title "settle check - real robot on a flat floor, motors idle"
+  basicTimeStep 32
+  randomSeed 1
+  # These MUST match worlds/tennis_court.wbt. Without them the floor falls
+  # back to Webots defaults and the drive wheels spin on the spot with no
+  # traction, which reads as a drivetrain fault when it is only a missing
+  # contact material in this diagnostic world.
+  contactProperties [
+    ContactProperties {
+      material1 "wheel"
+      material2 "hardFloor"
+      coulombFriction [ 1.00 1.00 1.00 1.00 ]
+      rollingFriction 0.002 0.002 0.0004
+    }
+    ContactProperties {
+      material1 "skid"
+      material2 "hardFloor"
+      coulombFriction [ 0.08 0.08 0.08 0.08 ]
+      rollingFriction 0.000 0.000 0.000
+    }
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "hardFloor"
+      coulombFriction [ 0.50 0.50 0.50 0.50 ]
+      rollingFriction 0.010 0.010 0.004
+      bounce 0.55
+      bounceVelocity 0.05
+    }
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "roller"
+      coulombFriction [ 1.30 1.30 1.30 1.30 ]
+      rollingFriction 0.004 0.004 0.001
+    }
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "chute"
+      coulombFriction [ 1.30 1.30 1.30 1.30 ]
+      rollingFriction 0.004 0.004 0.001
+    }
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "hopper"
+      coulombFriction [ 0.60 0.60 0.60 0.60 ]
+      rollingFriction 0.020 0.020 0.008
+    }
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "chassis"
+      coulombFriction [ 0.45 0.45 0.45 0.45 ]
+      bounce 0.30
+    }
+  ]
+}
+Viewpoint { position -4 -4 2 orientation 0.7 0.5 0.3 2.0 }
+Background { skyColor [ 0.4 0.7 1 ] }
+Solid {
+  name "floor"
+  translation 0 0 -0.05
+  contactMaterial "hardFloor"
+  children [ Shape { geometry Box { size 20 20 0.1 } } ]
+  boundingObject Box { size 20 20 0.1 }
+}
+TennisCollectorRobot {
+  translation 0 0 0
+  controller "settle"
+}

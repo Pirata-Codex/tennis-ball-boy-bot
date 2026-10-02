@@ -1,0 +1,534 @@
+#VRML_SIM R2025a utf8
+# license: Apache License 2.0
+# license url: https://www.apache.org/licenses/LICENSE-2.0
+# ---------------------------------------------------------------------------
+# TennisCollectorRobot - Active Overhead Intake Paddle + Low Floor
+#
+# Chassis-local frame:  +x forward, +y left, +z up, origin on the ground
+# directly beneath the centre of the robot.
+# ---------------------------------------------------------------------------
+
+PROTO TennisCollectorRobot [
+  field SFVec3f    translation    0 0 0
+  field SFRotation rotation       0 0 1 0
+  field SFString   controller    "tennis_collector"
+  field MFString   controllerArgs []
+  field SFString   name           "tennis collector"
+  field SFColor    bodyColor      0.12 0.30 0.72
+]
+{
+  Robot {
+    translation     IS translation
+    rotation        IS rotation
+    name            IS name
+    supervisor      TRUE
+    controller      IS controller
+    controllerArgs  IS controllerArgs
+    boundingObject Box { size 0.002 0.002 0.002 }
+    physics Physics {
+      density -1
+      mass 0.05
+    }
+    children [
+
+      # ==================================================================
+      # ================= CHASSIS =================
+      # ==================================================================
+      DEF BODY_CHASSIS Solid {
+        name       "chassis"
+        translation 0 0 0
+        contactMaterial "chassis"
+        children [
+
+          # ---- main deck (behind the bin, carrying the mast)
+          Transform {
+            translation -0.15 0 0.06
+            children [
+              Shape {
+                appearance PBRAppearance {
+                  baseColor IS bodyColor
+                  metalness 0.1
+                  roughness  0.45
+                }
+                geometry Box { size 0.38 0.30 0.06 }
+              }
+              Transform {
+                translation 0 0 -0.035
+                children [
+                  Shape {
+                    appearance PBRAppearance { baseColor 0.08 0.08 0.10 metalness 0.3 roughness 0.7 }
+                    geometry Box { size 0.34 0.26 0.02 }
+                  }
+                ]
+              }
+            ]
+          }
+
+          # bin left wall
+          Transform {
+            translation 0.22  0.120 0.075
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
+                geometry Box { size 0.34 0.014 0.14 }
+              }
+            ]
+          }
+          # bin right wall
+          Transform {
+            translation 0.22 -0.120 0.075
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
+                geometry Box { size 0.34 0.014 0.14 }
+              }
+            ]
+          }
+          # bin back wall
+          Transform {
+            translation 0.057 0 0.075
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
+                geometry Box { size 0.014 0.24 0.14 }
+              }
+            ]
+          }
+          # bin rear lid
+          Transform {
+            translation 0.17 0 0.150
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
+                geometry Box { size 0.22 0.24 0.012 }
+              }
+            ]
+          }
+          # entrance roof hood (raised to z=0.170 to give space for overhead paddle spin)
+          Transform {
+            translation 0.38 0 0.170
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.20 0.20 0.24 metalness 0.2 roughness 0.8 }
+                geometry Box { size 0.20 0.24 0.010 }
+              }
+            ]
+          }
+
+          # ==============================================================
+          # LOW FLOOR & DROP-STEP PIT (Open Entrance at z=0)
+          # ==============================================================
+          # bin floor pit (x=0.06 to x=0.32, z=0.002)
+          Transform {
+            translation 0.19 0 0.002
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.20 0.20 0.22 metalness 0.1 roughness 0.8 }
+                geometry Box { size 0.26 0.22 0.003 }
+              }
+            ]
+          }
+          # drop-step retention ledge (x=0.32, height 12 mm)
+          Transform {
+            translation 0.32 0 0.008
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.28 0.28 0.30 metalness 0.2 roughness 0.8 }
+                geometry Box { size 0.006 0.22 0.012 }
+              }
+            ]
+          }
+
+          # ==============================================================
+          # FLARED GATHERING WINGS (Funneling Side Guides)
+          # ==============================================================
+          # left flared wing
+          Transform {
+            translation 0.48  0.175 0.060
+            rotation 0 0 1  0.420
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
+                geometry Box { size 0.24 0.012 0.11 }
+              }
+            ]
+          }
+          # right flared wing
+          Transform {
+            translation 0.48 -0.175 0.060
+            rotation 0 0 1 -0.420
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
+                geometry Box { size 0.24 0.012 0.11 }
+              }
+            ]
+          }
+
+          # ==============================================================
+          # OVERHEAD ACTIVE ROTATING INTAKE PADDLE / ROLLER
+          # ==============================================================
+          HingeJoint {
+            jointParameters HingeJointParameters {
+              axis   0 1 0
+              anchor 0.38 0 0.100
+            }
+            device [
+              RotationalMotor {
+                name        "intakeRoller"
+                maxTorque   2.5
+                maxVelocity 50
+                minPosition -1e6
+                maxPosition 1e6
+                sound ""
+              }
+            ]
+            endPoint DEF BODY_INTAKE_ROLLER Solid {
+              name       "intakeRoller"
+              translation 0.38 0 0.100
+              contactMaterial "roller"
+              children [
+                # Main roller cylinder
+                Transform {
+                  rotation 1 0 0 1.5708
+                  children [
+                    Shape {
+                      appearance PBRAppearance { baseColor 0.90 0.45 0.10 metalness 0.0 roughness 1.0 }
+                      geometry Cylinder { radius 0.032 height 0.210 }
+                    }
+                    # 4 Radial paddle vanes
+                    Transform { rotation 0 0 1 0.0000 children [ Transform { translation 0.035 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.85 0.35 0.08 roughness 0.9 } geometry Box { size 0.008 0.012 0.210 } } ] } ] }
+                    Transform { rotation 0 0 1 1.5708 children [ Transform { translation 0.035 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.85 0.35 0.08 roughness 0.9 } geometry Box { size 0.008 0.012 0.210 } } ] } ] }
+                    Transform { rotation 0 0 1 3.1416 children [ Transform { translation 0.035 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.85 0.35 0.08 roughness 0.9 } geometry Box { size 0.008 0.012 0.210 } } ] } ] }
+                    Transform { rotation 0 0 1 4.7124 children [ Transform { translation 0.035 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.85 0.35 0.08 roughness 0.9 } geometry Box { size 0.008 0.012 0.210 } } ] } ] }
+                  ]
+                }
+              ]
+              boundingObject Transform {
+                rotation 1 0 0 1.5708
+                children [ Cylinder { radius 0.040 height 0.210 } ]
+              }
+              physics Physics {
+                density -1
+                mass 0.12
+                damping Damping { linear 0.05 angular 0.05 }
+              }
+            }
+          }
+
+          # ---- lidar mast ----
+          Transform {
+            translation -0.28 0 0.30
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.15 0.15 0.17 metalness 0.4 roughness 0.5 }
+                geometry Box { size 0.05 0.05 0.50 }
+              }
+            ]
+          }
+          Transform {
+            translation -0.28 0 0.545
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.15 0.15 0.17 metalness 0.4 roughness 0.5 }
+                geometry Box { size 0.05 0.26 0.03 }
+              }
+            ]
+          }
+
+          # ---- rear left drive wheel ----
+          HingeJoint {
+            jointParameters HingeJointParameters {
+              axis   0 1 0
+              anchor -0.10  0.185 0.09
+            }
+            device [
+              RotationalMotor {
+                name        "leftWheelMotor"
+                maxTorque   4.0
+                maxVelocity 20
+                minPosition -1e6
+                maxPosition 1e6
+                sound ""
+              }
+              PositionSensor { name "leftWheelEncoder" }
+            ]
+            endPoint DEF BODY_WHEEL_LEFT Solid {
+              name       "wheelLeft"
+              translation -0.10  0.185 0.09
+              contactMaterial "wheel"
+              children [
+                Transform {
+                  rotation 1 0 0 1.5708
+                  children [
+                    Shape {
+                      appearance PBRAppearance { baseColor 0.10 0.10 0.12 metalness 0 roughness 0.9 }
+                      geometry Cylinder { radius 0.086 height 0.05 }
+                    }
+                    Shape {
+                      appearance PBRAppearance { baseColor 0.55 0.55 0.58 metalness 0.5 roughness 0.4 }
+                      geometry Cylinder { radius 0.045 height 0.052 }
+                    }
+                    Transform { rotation 0 0 1 0.0000 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 0.5236 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 1.0472 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 1.5708 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 2.0944 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 2.6180 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 3.1416 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 3.6652 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 4.1888 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 4.7124 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 5.2360 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 5.7596 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                  ]
+                }
+              ]
+              boundingObject Transform {
+                rotation 1 0 0 1.5708
+                children [ Cylinder { radius 0.09 height 0.05 } ]
+              }
+              physics Physics { density -1 mass 0.7 }
+            }
+          }
+
+          # ---- rear right drive wheel ----
+          HingeJoint {
+            jointParameters HingeJointParameters {
+              axis   0 1 0
+              anchor -0.10 -0.185 0.09
+            }
+            device [
+              RotationalMotor {
+                name        "rightWheelMotor"
+                maxTorque   4.0
+                maxVelocity 20
+                minPosition -1e6
+                maxPosition 1e6
+                sound ""
+              }
+              PositionSensor { name "rightWheelEncoder" }
+            ]
+            endPoint DEF BODY_WHEEL_RIGHT Solid {
+              name       "wheelRight"
+              translation -0.10 -0.185 0.09
+              contactMaterial "wheel"
+              children [
+                Transform {
+                  rotation 1 0 0 1.5708
+                  children [
+                    Shape {
+                      appearance PBRAppearance { baseColor 0.10 0.10 0.12 metalness 0 roughness 0.9 }
+                      geometry Cylinder { radius 0.086 height 0.05 }
+                    }
+                    Shape {
+                      appearance PBRAppearance { baseColor 0.55 0.55 0.58 metalness 0.5 roughness 0.4 }
+                      geometry Cylinder { radius 0.045 height 0.052 }
+                    }
+                    Transform { rotation 0 0 1 0.0000 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 0.5236 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 1.0472 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 1.5708 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 2.0944 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 2.6180 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 3.1416 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 3.6652 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 4.1888 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 4.7124 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 5.2360 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                    Transform { rotation 0 0 1 5.7596 children [ Transform { translation 0.087 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.18 0.18 0.20 roughness 0.95 } geometry Box { size 0.006 0.010 0.052 } } ] } ] }
+                  ]
+                }
+              ]
+              boundingObject Transform {
+                rotation 1 0 0 1.5708
+                children [ Cylinder { radius 0.09 height 0.05 } ]
+              }
+              physics Physics { density -1 mass 0.7 }
+            }
+          }
+
+          # ---- front castor wheels ----
+          HingeJoint {
+            jointParameters HingeJointParameters {
+              axis   0 1 0
+              anchor 0.15  0.175 0.03
+            }
+            endPoint DEF BODY_SKID_LEFT Solid {
+              name       "skidLeft"
+              translation 0.15  0.175 0.03
+              contactMaterial "skid"
+              children [
+                Transform {
+                  rotation 1 0 0 1.5708
+                  children [
+                    Shape {
+                      appearance PBRAppearance { baseColor 0.35 0.35 0.38 metalness 0.2 roughness 0.6 }
+                      geometry Cylinder { radius 0.028 height 0.03 }
+                    }
+                    Transform { rotation 0 0 1 0.0000 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 0.7854 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 1.5708 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 2.3562 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 3.1416 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 3.9270 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 4.7124 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 5.4978 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                  ]
+                }
+              ]
+              boundingObject Transform {
+                rotation 1 0 0 1.5708
+                children [ Cylinder { radius 0.03 height 0.03 } ]
+              }
+              physics Physics { density -1 mass 0.5 }
+            }
+          }
+          HingeJoint {
+            jointParameters HingeJointParameters {
+              axis   0 1 0
+              anchor 0.15 -0.175 0.03
+            }
+            endPoint DEF BODY_SKID_RIGHT Solid {
+              name       "skidRight"
+              translation 0.15 -0.175 0.03
+              contactMaterial "skid"
+              children [
+                Transform {
+                  rotation 1 0 0 1.5708
+                  children [
+                    Shape {
+                      appearance PBRAppearance { baseColor 0.35 0.35 0.38 metalness 0.2 roughness 0.6 }
+                      geometry Cylinder { radius 0.028 height 0.03 }
+                    }
+                    Transform { rotation 0 0 1 0.0000 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 0.7854 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 1.5708 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 2.3562 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 3.1416 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 3.9270 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 4.7124 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                    Transform { rotation 0 0 1 5.4978 children [ Transform { translation 0.028 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.95 } geometry Box { size 0.004 0.006 0.032 } } ] } ] }
+                  ]
+                }
+              ]
+              boundingObject Transform {
+                rotation 1 0 0 1.5708
+                children [ Cylinder { radius 0.03 height 0.03 } ]
+              }
+              physics Physics { density -1 mass 0.5 }
+            }
+          }
+
+          Lidar {
+            name "lidarLeft"
+            translation -0.28  0.17 0.50
+            rotation    0 0 1 0.85
+            fieldOfView         2.6
+            horizontalResolution 128
+            numberOfLayers      1
+            verticalFieldOfView 0.2
+            minRange            0.05
+            near                0.02
+            maxRange            8
+            type                "fixed"
+            projection          "cylindrical"
+            noise               0.01
+            defaultFrequency    25
+          }
+          Lidar {
+            name "lidarRight"
+            translation -0.28 -0.17 0.50
+            rotation    0 0 1 -0.85
+            fieldOfView         2.6
+            horizontalResolution 128
+            numberOfLayers      1
+            verticalFieldOfView 0.2
+            minRange            0.05
+            near                0.02
+            maxRange            8
+            type                "fixed"
+            projection          "cylindrical"
+            noise               0.01
+            defaultFrequency    25
+          }
+
+          GPS {
+            name "gps"
+            translation 0 0 0.30
+            resolution 0.004
+          }
+          Gyro {
+            name "gyro"
+            translation 0 0 0.30
+          }
+        ]
+        boundingObject Group {
+          children [
+            Transform {
+              translation -0.15 0 0.06
+              children [ Box { size 0.38 0.30 0.06 } ]
+            }
+            Transform {
+              translation -0.15 0 0.025
+              children [ Box { size 0.34 0.26 0.02 } ]
+            }
+            Transform {
+              translation 0.22  0.120 0.075
+              children [ Box { size 0.34 0.014 0.14 } ]
+            }
+            Transform {
+              translation 0.22 -0.120 0.075
+              children [ Box { size 0.34 0.014 0.14 } ]
+            }
+            Transform {
+              translation 0.057 0 0.075
+              children [ Box { size 0.014 0.24 0.14 } ]
+            }
+            Transform {
+              translation 0.17 0 0.150
+              children [ Box { size 0.22 0.24 0.012 } ]
+            }
+            Transform {
+              translation 0.38 0 0.170
+              children [ Box { size 0.20 0.24 0.010 } ]
+            }
+            # Bin floor pit and drop-step retention ledge
+            Transform {
+              translation 0.19 0 0.002
+              children [ Box { size 0.26 0.22 0.003 } ]
+            }
+            Transform {
+              translation 0.32 0 0.008
+              children [ Box { size 0.006 0.22 0.012 } ]
+            }
+            # Flared gathering wings
+            Transform {
+              translation 0.48  0.175 0.060
+              rotation 0 0 1  0.420
+              children [ Box { size 0.24 0.012 0.11 } ]
+            }
+            Transform {
+              translation 0.48 -0.175 0.060
+              rotation 0 0 1 -0.420
+              children [ Box { size 0.24 0.012 0.11 } ]
+            }
+            Transform {
+              translation -0.28 0 0.30
+              children [ Box { size 0.05 0.05 0.50 } ]
+            }
+            Transform {
+              translation -0.28 0 0.545
+              children [ Box { size 0.05 0.26 0.03 } ]
+            }
+          ]
+        }
+        physics Physics {
+          density -1
+          mass 12
+          damping Damping { linear 0.02 angular 0.15 }
+        }
+      }
+    ]
+  }
+}

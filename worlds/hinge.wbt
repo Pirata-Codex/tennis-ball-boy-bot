@@ -1,0 +1,170 @@
+#VRML_SIM R2025a utf8
+# Two-wheel + two-skid isolation rig.
+#
+# Purpose: prove that a RotationalMotor driving a hinge-joined wheel CAN
+# propel a chassis on a floor in this Webots build. Earlier versions of this
+# world had a single wheel (so the rig balanced on one contact and pitched
+# about 7 degrees, which masked the real question) and no contactProperties
+# (so the wheels had no friction and simply spun on the spot).
+#
+# Note the joint anchors: HingeJointParameters.anchor is resolved in the
+# PARENT Solid's frame, so it must equal the endpoint Solid's translation.
+# With `anchor 0 0 0` every endpoint orbits the chassis origin instead of
+# spinning about its own axle.
+WorldInfo {
+  title "hinge isolation - two wheels"
+  basicTimeStep 32
+  randomSeed 1
+  # coulombFriction takes FOUR values in Webots (longitudinal and lateral for
+  # each of the two materials); giving only one leaves the rest at 0.
+  # rollingFriction takes THREE (longitudinal, lateral, spin).
+  contactProperties [
+    ContactProperties {
+      material1       "wheel"
+      material2       "hardFloor"
+      coulombFriction [ 1.00 1.00 1.00 1.00 ]
+      rollingFriction 0.002 0.002 0.0004
+    }
+    ContactProperties {
+      material1       "skid"
+      material2       "hardFloor"
+      coulombFriction [ 0.08 0.08 0.08 0.08 ]
+      rollingFriction 0.000 0.000 0.000
+    }
+  ]
+}
+Viewpoint { position -3 -3 1.5 orientation 0.7 0.5 0.3 2.0 }
+Background { skyColor [ 0.4 0.7 1 ] }
+Solid {
+  name "floor"
+  translation 0 0 -0.05
+  contactMaterial "hardFloor"
+  children [ Shape { geometry Box { size 20 20 0.1 } } ]
+  boundingObject Box { size 20 20 0.1 }
+}
+Robot {
+  supervisor TRUE
+  controller "hingetest"
+  boundingObject Box { size 0.002 0.002 0.002 }
+  physics Physics { density -1 mass 0.05 }
+  children [
+    DEF BODY_CHASSIS Solid {
+      name "chassis"
+      contactMaterial "chassis"
+      children [
+        HingeJoint {
+          jointParameters HingeJointParameters {
+            axis   0 1 0
+            anchor -0.10  0.185 0.09
+          }
+          device [
+            RotationalMotor {
+              name        "leftWheelMotor"
+              maxTorque   4.0
+              maxVelocity 20
+              minPosition -1e6
+              maxPosition 1e6
+            }
+            PositionSensor { name "leftWheelEncoder" }
+          ]
+          endPoint DEF BODY_WHEEL_LEFT Solid {
+            name            "wheelLeft"
+            translation     -0.10  0.185 0.09
+            contactMaterial "wheel"
+            children [
+              Transform { rotation 1 0 0 1.5708
+                children [ Shape { geometry Cylinder { radius 0.09 height 0.05 } } ] }
+            ]
+            # Rotation goes ON the geometry node, not on a wrapping
+            # Transform. A Cylinder is z-aligned, and putting the rotation on
+            # the Cylinder itself is what actually reaches the collision
+            # shape. With the rotation on a Transform wrapper the wheel ends
+            # up modelled as an upright disc whose flat bottom face sits well
+            # above the floor, so it spins freely with no load and the robot
+            # never moves.
+            boundingObject Transform { rotation 1 0 0 1.5708
+              children [ Cylinder { radius 0.09 height 0.05 } ]
+            }
+            physics Physics { density -1 mass 0.7 }
+          }
+        }
+
+        HingeJoint {
+          jointParameters HingeJointParameters {
+            axis   0 1 0
+            anchor -0.10 -0.185 0.09
+          }
+          device [
+            RotationalMotor {
+              name        "rightWheelMotor"
+              maxTorque   4.0
+              maxVelocity 20
+              minPosition -1e6
+              maxPosition 1e6
+            }
+            PositionSensor { name "rightWheelEncoder" }
+          ]
+          endPoint DEF BODY_WHEEL_RIGHT Solid {
+            name            "wheelRight"
+            translation     -0.10 -0.185 0.09
+            contactMaterial "wheel"
+            children [
+              Transform { rotation 1 0 0 1.5708
+                children [ Shape { geometry Cylinder { radius 0.09 height 0.05 } } ] }
+            ]
+            boundingObject Transform { rotation 1 0 0 1.5708
+              children [ Cylinder { radius 0.09 height 0.05 } ]
+            }
+            physics Physics { density -1 mass 0.7 }
+          }
+        }
+
+        BallJoint {
+          jointParameters BallJointParameters { anchor 0.15  0.175 0.03 }
+          endPoint DEF BODY_SKID_LEFT Solid {
+            name            "skidLeft"
+            translation     0.15  0.175 0.03
+            contactMaterial "skid"
+            children [
+              Transform { rotation 1 0 0 1.5708
+                children [ Shape { geometry Cylinder { radius 0.03 height 0.03 } } ] }
+            ]
+            boundingObject Transform { rotation 1 0 0 1.5708
+              children [ Cylinder { radius 0.03 height 0.03 } ]
+            }
+            physics Physics { density -1 mass 0.5 }
+          }
+        }
+
+        BallJoint {
+          jointParameters BallJointParameters { anchor 0.15 -0.175 0.03 }
+          endPoint DEF BODY_SKID_RIGHT Solid {
+            name            "skidRight"
+            translation     0.15 -0.175 0.03
+            contactMaterial "skid"
+            children [
+              Transform { rotation 1 0 0 1.5708
+                children [ Shape { geometry Cylinder { radius 0.03 height 0.03 } } ] }
+            ]
+            boundingObject Transform { rotation 1 0 0 1.5708
+              children [ Cylinder { radius 0.03 height 0.03 } ]
+            }
+            physics Physics { density -1 mass 0.5 }
+          }
+        }
+      ]
+      # Deck sits clear of the floor: box spans z 0.03..0.09, so the wheel
+      # treads (centre z 0.09, radius 0.09) are the only thing carrying the
+      # rear of the rig and the skids carry the front.
+      boundingObject Group {
+        children [
+          Transform {
+            translation 0 0 0.06
+            children [ Box { size 0.34 0.30 0.06 } ]
+          }
+        ]
+      }
+      physics Physics { density -1 mass 12 }
+    }
+  ]
+}

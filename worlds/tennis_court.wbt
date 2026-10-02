@@ -1,0 +1,299 @@
+#VRML_SIM R2025a utf8
+# license: Apache License 2.0
+# license url: https://www.apache.org/licenses/LICENSE-2.0
+# ---------------------------------------------------------------------------
+# Tennis ball collector - MAIN WORLD (hard court)
+#
+# This is the world to open. It contains the court, the net, the ten balls and
+# the robot.
+#
+#   * 12 m x 6 m practice court, acrylic surface over concrete.
+#   * The net on the centre line is a REAL collidable object, so the two mast
+#     lidars have a genuine obstacle to keep the robot clear of.
+#   * The robot is scoped to the left half for this prototype, because the net
+#     blocks the middle. Every ball and the drop zone are on that side. The
+#     usable area is handed to the controller with --bounds.
+#
+# The same scene on a dirt/clay surface is worlds/tennis_court_dirt.wbt. Only
+# WorldInfo.contactProperties and the floor colour differ between the two.
+# ---------------------------------------------------------------------------
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "../protos/TennisBall.proto"
+EXTERNPROTO "../protos/TennisCollectorRobot.proto"
+EXTERNPROTO "../protos/CourtMarkings.proto"
+
+WorldInfo {
+  title "Tennis ball collector - hard court"
+  basicTimeStep 32
+  randomSeed 1
+  contactProperties [
+    # ---- ball on hard acrylic: slides easily, bounces ----
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "hardFloor"
+      coulombFriction [ 0.50 0.50 0.50 0.50 ]
+      rollingFriction 0.010 0.010 0.010
+      bounce 0.55
+      bounceVelocity 0.05
+    }
+    # ---- drive wheels: full grip, negligible rolling resistance ----
+    ContactProperties {
+      material1 "wheel"
+      material2 "hardFloor"
+      coulombFriction [ 1.00 1.00 1.00 1.00 ]
+      rollingFriction 0.002 0.002 0.0004
+    }
+    # ---- passive front skids kept slick so they do not scrub ----
+    ContactProperties {
+      material1 "skid"
+      material2 "hardFloor"
+      coulombFriction [ 0.08 0.08 0.08 0.08 ]
+      rollingFriction 0.000 0.000 0.000
+    }
+    # ---- intake. Deliberately identical in both worlds: a real collector's
+    #      pickup mechanism does not care what the ground is made of. ----
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "roller"
+      coulombFriction [ 1.80 1.80 1.80 1.80 ]
+      rollingFriction 0.004 0.004 0.004
+    }
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "chute"
+      coulombFriction [ 1.80 1.80 1.80 1.80 ]
+      rollingFriction 0.004 0.004 0.004
+    }
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "hopper"
+      coulombFriction [ 0.60 0.60 0.60 0.60 ]
+      rollingFriction 0.020 0.020 0.020
+    }
+    # ---- bodywork / rails, so a ball that clips the chassis behaves ----
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "chassis"
+      coulombFriction [ 0.45 0.45 0.45 0.45 ]
+      bounce 0.30
+    }
+    # ---- robot / balls against the fence and the net ----
+    ContactProperties {
+      material1 "wheel"
+      material2 "wall"
+      coulombFriction [ 0.40 0.40 0.40 0.40 ]
+    }
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "wall"
+      coulombFriction [ 0.50 0.50 0.50 0.50 ]
+      bounce 0.40
+    }
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "net"
+      coulombFriction [ 0.30 0.30 0.30 0.30 ]
+      rollingFriction 0.020 0.020 0.020
+    }
+  ]
+}
+
+
+# ---- static overview camera ----
+# Kept as a second viewpoint, so it can still be picked from the viewpoint list,
+# for looking at the whole court.
+Viewpoint {
+  description  "overview"
+  orientation 1 0 0 0.85
+  position    -2 -12 8
+}
+
+# ---- chase camera (the default) ----
+# `follow` names a DEF'd node and makes Webots keep this viewpoint locked to it,
+# so the camera tracks the robot with no controller code. "Tracking Shot" moves
+# the camera but leaves its ORIENTATION fixed in world space, so the horizon
+# stays level; a camera that rotated with the robot's heading would roll the
+# whole court on every turn, which makes a small robot on a 12 m court very
+# hard to follow. followSmoothness damps the motion so the view glides instead
+# of snapping every step.
+Viewpoint {
+  description        "chase"
+  orientation        0.36 0.20 0.91 2.30
+  position           -7.7 -2.2 1.7
+  follow             "ROBOT"
+  followType         "Tracking Shot"
+  followSmoothness   0.85
+  fieldOfView        0.70
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+
+# ================= SURFACE =================
+# A single physics box. All painted markings come from CourtMarkings, which has
+# no collision at all, so the lines can never disturb the physics.
+Solid {
+  name "floor"
+  translation 0 0 -0.05
+  contactMaterial "hardFloor"
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.13 0.42 0.24
+        metalness 0
+        roughness  0.75
+      }
+      geometry Box { size 30 24 0.1 }
+    }
+  ]
+  boundingObject Box { size 30 24 0.1 }
+}
+
+CourtMarkings {
+  dropZoneCenter -4.9 1.8 0
+}
+
+# ================= PERIMETER FENCE =================
+# 1.2 m tall so the lidars, which scan horizontally at z = 0.55, always see them.
+Solid {
+  name "wallNorth"
+  translation 0  3.3 0.6
+  contactMaterial "wall"
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.25 0.27 0.32 metalness 0 roughness 0.9 }
+      geometry Box { size 13.0 0.2 1.2 }
+    }
+  ]
+  boundingObject Box { size 13.0 0.2 1.2 }
+}
+Solid {
+  name "wallSouth"
+  translation 0 -3.3 0.6
+  contactMaterial "wall"
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.25 0.27 0.32 metalness 0 roughness 0.9 }
+      geometry Box { size 13.0 0.2 1.2 }
+    }
+  ]
+  boundingObject Box { size 13.0 0.2 1.2 }
+}
+Solid {
+  name "wallEast"
+  translation  6.3 0 0.6
+  contactMaterial "wall"
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.25 0.27 0.32 metalness 0 roughness 0.9 }
+      geometry Box { size 0.2 6.8 1.2 }
+    }
+  ]
+  boundingObject Box { size 0.2 6.8 1.2 }
+}
+Solid {
+  name "wallWest"
+  translation -6.3 0 0.6
+  contactMaterial "wall"
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.25 0.27 0.32 metalness 0 roughness 0.9 }
+      geometry Box { size 0.2 6.8 1.2 }
+    }
+  ]
+  boundingObject Box { size 0.2 6.8 1.2 }
+}
+
+# ================= NET =================
+# A real obstacle. The mesh is drawn semi-transparent, but the lidar treats
+# semi-transparent geometry as opaque, so the robot detects it properly.
+Solid {
+  name "netMesh"
+  translation 0 0 0.525
+  contactMaterial "net"
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.90 0.92 0.95
+        metalness 0
+        roughness  0.9
+        transparency 0.78
+      }
+      geometry Box { size 0.02 6.4 0.85 }
+    }
+  ]
+  boundingObject Box { size 0.02 6.4 0.85 }
+}
+Solid {
+  name "netTapeTop"
+  translation 0 0 0.91
+  contactMaterial "net"
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.97 0.97 0.97 metalness 0 roughness 0.8 }
+      geometry Box { size 0.05 6.4 0.06 }
+    }
+  ]
+  boundingObject Box { size 0.05 6.4 0.06 }
+}
+Solid {
+  name "netTapeBottom"
+  translation 0 0 0.10
+  contactMaterial "net"
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.97 0.97 0.97 metalness 0 roughness 0.8 }
+      geometry Box { size 0.05 6.4 0.05 }
+    }
+  ]
+  boundingObject Box { size 0.05 6.4 0.05 }
+}
+Solid {
+  name "postNorth"
+  translation 0  3.15 0.55
+  contactMaterial "wall"
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.20 0.22 0.26 metalness 0.4 roughness 0.5 }
+      geometry Cylinder { radius 0.05 height 1.1 }
+    }
+  ]
+  boundingObject Cylinder { radius 0.05 height 1.1 }
+  physics Physics { density -1 mass 8 }
+}
+Solid {
+  name "postSouth"
+  translation 0 -3.15 0.55
+  contactMaterial "wall"
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.20 0.22 0.26 metalness 0.4 roughness 0.5 }
+      geometry Cylinder { radius 0.05 height 1.1 }
+    }
+  ]
+  boundingObject Cylinder { radius 0.05 height 1.1 }
+  physics Physics { density -1 mass 8 }
+}
+
+# ================= TENNIS BALLS =================
+# All on the left half, clear of the drop zone.
+DEF BALL0 TennisBall { name "ball0" translation -4.7  0.50 0.0335 }
+DEF BALL1 TennisBall { name "ball1" translation -4.3 -1.90 0.0335 }
+DEF BALL2 TennisBall { name "ball2" translation -3.5  0.30 0.0335 }
+DEF BALL3 TennisBall { name "ball3" translation -2.7  2.10 0.0335 }
+DEF BALL4 TennisBall { name "ball4" translation -1.9 -0.80 0.0335 }
+DEF BALL5 TennisBall { name "ball5" translation -1.2  1.40 0.0335 }
+DEF BALL6 TennisBall { name "ball6" translation -3.9 -0.30 0.0335 }
+DEF BALL7 TennisBall { name "ball7" translation -2.4 -2.20 0.0335 }
+DEF BALL8 TennisBall { name "ball8" translation -1.5 -1.60 0.0335 }
+DEF BALL9 TennisBall { name "ball9" translation -5.4 -0.80 0.0335 }
+
+# ================= ROBOT =================
+DEF ROBOT TennisCollectorRobot {
+  translation -5.3 -2.2 0
+  controller  "tennis_collector"
+  controllerArgs [ "--dropZone -4.9 1.8 --bounds -5.75 -0.70 -2.70 2.70" ]
+}

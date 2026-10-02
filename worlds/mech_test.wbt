@@ -1,0 +1,62 @@
+#VRML_SIM R2025a utf8
+EXTERNPROTO "../protos/TennisCollectorRobot.proto"
+EXTERNPROTO "../protos/TennisBall.proto"
+WorldInfo {
+  title "mechanism test - scoop ramp + one-way flap, one ball straight ahead"
+  basicTimeStep 32
+  randomSeed 1
+  contactProperties [
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "hardFloor"
+      coulombFriction [ 0.50 0.50 0.50 0.50 ]
+      rollingFriction 0.010 0.010 0.004
+      bounce 0.55
+      bounceVelocity 0.05
+    }
+    ContactProperties {
+      material1 "wheel"
+      material2 "hardFloor"
+      coulombFriction [ 1.00 1.00 1.00 1.00 ]
+      rollingFriction 0.002 0.002 0.0004
+    }
+    ContactProperties {
+      material1 "skid"
+      material2 "hardFloor"
+      coulombFriction [ 0.08 0.08 0.08 0.08 ]
+      rollingFriction 0.000 0.000 0.000
+    }
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "chassis"
+      coulombFriction [ 0.90 0.90 0.90 0.90 ]
+      bounce 0.10
+    }
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "roller"
+      coulombFriction [ 1.80 1.80 1.80 1.80 ]
+      rollingFriction 0.004 0.004 0.001
+    }
+  ]
+}
+Viewpoint { position -3 -3 2 orientation 0.6 0.5 0.3 2.0 }
+Background { skyColor [ 0.4 0.7 1 ] }
+Solid {
+  name "floor"
+  translation 0 0 -0.05
+  contactMaterial "hardFloor"
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.13 0.42 0.24 metalness 0 roughness 0.75 }
+      geometry Box { size 30 24 0.1 }
+    }
+  ]
+  boundingObject Box { size 30 24 0.1 }
+}
+TennisCollectorRobot {
+  translation 0 0 0
+  controller "tennis_collector"
+  controllerArgs [ "--dropZone 6 6 --bounds -14 14 -11 11 --runtime 30" ]
+}
+DEF BALL0 TennisBall { name "ball0" translation 1.10 0 0.0335 }

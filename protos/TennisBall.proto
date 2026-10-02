@@ -1,0 +1,50 @@
+#VRML_SIM R2025a utf8
+# license: Apache License 2.0
+# license url: https://www.apache.org/licenses/LICENSE-2.0
+# A regulation tennis ball (ITF: 6.54 - 6.86 cm diameter, 56.0 - 59.4 g).
+# Real size and mass, so the intake mechanism is sized against genuine physics.
+
+PROTO TennisBall [
+  field SFVec3f  translation     0 0 0.0335
+  field SFRotation rotation      0 0 1 0
+  field SFString  name           "tennisBall"
+  field SFFloat  radius          0.0335      # [0, inf)
+  field SFFloat  mass            0.057       # [0, inf)
+  field SFFloat  linearDamping   0.30        # [0, 1)
+  field SFFloat  angularDamping  0.45        # [0, 1)
+  field SFColor  ballColor       0.83 0.90 0.20
+  field SFString contactMaterial "tennisBall"
+]
+{
+  Solid {
+    translation     IS translation
+    rotation        IS rotation
+    name            IS name
+    contactMaterial IS contactMaterial
+    children [
+      Shape {
+        appearance PBRAppearance {
+          baseColor IS ballColor
+          metalness 0
+          roughness  0.85
+        }
+        geometry Sphere {
+          radius IS radius
+        }
+      }
+    ]
+    boundingObject Sphere {
+      radius IS radius
+    }
+    physics Physics {
+      # -1 tells Webots to derive density from mass instead of using the
+      # default 1000 kg/m3, which would otherwise silently win over mass.
+      density -1
+      mass   IS mass
+      damping Damping {
+        linear  IS linearDamping
+        angular IS angularDamping
+      }
+    }
+  }
+}
