@@ -12,3 +12,8 @@ __pycache__/
 
 # Webots temp
 *.wbproj
+
+# Per-run scratch telemetry (regenerated every run; the archived, append-only
+# record lives in logs/iterations/ and IS tracked)
+logs/telemetry_world.csv
+logs/trace_world.jsonl

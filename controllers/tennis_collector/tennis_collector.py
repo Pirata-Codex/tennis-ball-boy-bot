@@ -222,7 +222,11 @@ EXP_MAX_BYTES = 16_000_000   # cap the append-only file at ~16 MB
 # The policy chooses the (v, w) lattice action for the SEEK and TO_DROP states;
 # A*, the occupancy grid and the wall guard are unchanged and still veto any
 # action that is unsafe, so learning cannot drive the robot into a wall.
-RL_ENABLED = True
+# Set TENNIS_NO_POLICY=1 to force the deterministic DWA planner and suppress all
+# learned-policy driving. The buffer and weights still change between runs, so
+# A/B testing a mechanism or planner change is only reproducible with the policy
+# disabled; this flag makes that a one-env-var switch instead of editing code.
+RL_ENABLED = os.environ.get('TENNIS_NO_POLICY', '') not in ('1', 'true', 'yes')
 RL_EPSILON = 0.30             # initial exploration rate
 RL_EPSILON_MIN = 0.05
 RL_EPSILON_DECAY = 0.998

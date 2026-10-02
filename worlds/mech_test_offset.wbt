@@ -67,4 +67,6 @@ DEF ROBOT TennisCollectorRobot {
   controller "tennis_collector"
   controllerArgs [ "--dropZone 3 0 --bounds -14 14 -11 11 --runtime 60" ]
 }
-DEF BALL0 TennisBall { name "ball0" translation 1.10 0 0.0335 }
+DEF BALL0 TennisBall { name "ball0" translation 1.00 0.35 0.0335 }
+DEF BALL1 TennisBall { name "ball1" translation 1.60 -0.22 0.0335 }
+DEF BALL2 TennisBall { name "ball2" translation 2.20 0.15 0.0335 }
