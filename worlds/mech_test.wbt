@@ -40,7 +40,14 @@ WorldInfo {
     }
   ]
 }
-Viewpoint { position -3 -3 2 orientation 0.6 0.5 0.3 2.0 }
+Viewpoint {
+  description        "chase"
+  orientation        0.36 0.20 0.91 2.30
+  position           -2.2 -1.4 1.4
+  follow             "ROBOT"
+  followType         "Tracking Shot"
+  followSmoothness   0.85
+}
 Background { skyColor [ 0.4 0.7 1 ] }
 Solid {
   name "floor"
@@ -54,9 +61,9 @@ Solid {
   ]
   boundingObject Box { size 30 24 0.1 }
 }
-TennisCollectorRobot {
+DEF ROBOT TennisCollectorRobot {
   translation 0 0 0
   controller "tennis_collector"
-  controllerArgs [ "--dropZone 6 6 --bounds -14 14 -11 11 --runtime 30" ]
+  controllerArgs [ "--dropZone 3 0 --bounds -14 14 -11 11 --runtime 60" ]
 }
 DEF BALL0 TennisBall { name "ball0" translation 1.10 0 0.0335 }
