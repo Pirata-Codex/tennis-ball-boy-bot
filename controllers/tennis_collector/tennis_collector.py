@@ -188,7 +188,9 @@ DWA_PIVOT_ANGLE = 1.05        # rad: past this the goal is behind, so pivot firs
 
 # ---- wall / obstacle guard ----------------------------------------------
 WALL_STOP_DIST = 0.18        # m, keep-off gap beyond the bodywork
-RECOVER_TIME = 1.2           # s: how long RECOVER backs off before retrying
+RECOVER_TIME = 1.2           # s: base RECOVER duration (escalates on repeats)
+RECOVER_REVERSE_T = 0.8      # s of straight reverse before the in-place spin
+RECOVER_ESCALATE = 4.0       # s added per back-to-back recovery (spin more)
 BOUND_MARGIN = 0.05          # m past a bound before the body is forced back
 BOUND_BACK_TIME = 2.0        # s to reverse when the body leaves its bounds
 WALL_DECEL = 1.6             # m/s^2, assumed braking capability
@@ -273,8 +275,8 @@ NOMINAL_PARTS = {
     'BODY_CHASSIS': (0.0, 0.0, 0.0),
     'BODY_WHEEL_LEFT': (-0.10, 0.185, 0.09),
     'BODY_WHEEL_RIGHT': (-0.10, -0.185, 0.09),
-    'BODY_SKID_LEFT': (0.15, 0.175, 0.03),
-    'BODY_SKID_RIGHT': (0.15, -0.175, 0.03),
+    'BODY_SKID_LEFT': (0.15, 0.13, 0.03),
+    'BODY_SKID_RIGHT': (0.15, -0.13, 0.03),
     'BODY_ARM_ROLLER_LEFT': (0.56, 0.16, 0.040),
     'BODY_ARM_ROLLER_RIGHT': (0.56, -0.16, 0.040),
 }
@@ -552,7 +554,7 @@ class TennisCollector(Supervisor):
         try:
             if not os.path.isdir(TELEMETRY_DIR):
                 os.makedirs(TELEMETRY_DIR)
-            self.telemetry_path = os.path.join(
+            self.telemetry_path = os.environ.get('TENNIS_TELEM_FILE') or os.path.join(
                 TELEMETRY_DIR, 'telemetry_%s.csv' % self.world_tag())
             self.telemetry = open(self.telemetry_path, 'w')
             self.telemetry.write(
@@ -1928,7 +1930,17 @@ class TennisCollector(Supervisor):
         self.enter_recover()
 
     def enter_recover(self):
-        """Single entry point for RECOVER so its timer always starts clean."""
+        """Single entry point for RECOVER so its timer always starts clean.
+
+        Count back-to-back recoveries: if the robot has not travelled a body
+        length from where the last recovery left it, this is the same snag, so
+        escalate (RECOVER spins longer). A clean getaway resets the count.
+        """
+        ax, ay = getattr(self, 'recover_anchor', (None, None))
+        if ax is not None and math.hypot(self.pose_x - ax, self.pose_y - ay) < 0.5:
+            self.recover_count = getattr(self, 'recover_count', 0) + 1
+        else:
+            self.recover_count = 0
         self.state = 'RECOVER'
         self.state_time = 0.0
         self.recover_time = 0.0
@@ -1981,28 +1993,56 @@ class TennisCollector(Supervisor):
         # drivetrain CAN do when sustained, and which sweeps the body past the
         # trapped ball and rotates it out from under -- with a straight reverse
         # that then leaves it behind. Spin away from the ball's side.
+        # Two LONG sustained phases, not a fast alternation: a reverse and a spin
+        # each need ~0.5 s for the wheel-acceleration ramp to actually spin the
+        # wheels up, so flipping between them every 0.7 s left the wheels ramping
+        # through zero and the robot pinned in place (measured: 40 s stuck with
+        # cmd issued but xy fixed). Reverse first (straight-back reliably slides
+        # the ball off the deck edge), then, if that did not clear it, a hard
+        # sustained spin away from the ball's side.
         if ball is None:
             self.drive(-BACK_SPEED, 0.0)
         else:
             lx, ly, _ = self.to_robot(*ball['pos'])
-            side = -1.0 if ly >= 0.0 else 1.0   # rotate the trapped side back
-            phase = int(self.escape_time / 0.7) % 2
-            if phase == 0:
-                self.drive(0.0, side * ALIGN_WMAX)     # spin to dislodge
+            side = -1.0 if ly >= 0.0 else 1.0
+            if self.escape_time < 1.4:
+                self.drive(-BACK_SPEED, 0.0)           # sustained straight reverse
             else:
-                self.drive(-BACK_SPEED, 0.0)           # reverse to leave behind
+                self.drive(0.0, side * ALIGN_WMAX)     # sustained spin to dislodge
         self.set_door_rollers(0.0)
 
     def run_recover(self):
-        # back off and turn toward open space, longer than a token nudge so a
-        # wedged robot (e.g. arms under the net) actually breaks free
+        """Escalating stuck-recovery: reverse straight, then spin in place.
+
+        The old recover reversed *and* turned at once, but yaw authority is near
+        zero at v<0 (measured: ~0.2 deg/s at v=-0.22, w=0.8), so it barely
+        reoriented and the robot kept driving back into the same obstacle. Now it
+        first pulls straight back (where turning does not matter), then does a
+        SUSTAINED in-place spin toward the clearer side -- which the drivetrain
+        does well (40-100 deg/s) -- to point at open space before resuming. Each
+        back-to-back recovery (no real progress since the last) spins longer, so
+        a genuinely wedged robot eventually turns right around instead of
+        re-attacking the same spot.
+        """
         self.recover_time += self.dt
         clear_l = self.clear_left()
         clear_r = self.clear_right()
         side = 1.0 if clear_l >= clear_r else -1.0
-        self.drive(-BACK_SPEED, 0.8 * side)
-        if self.recover_time > RECOVER_TIME:
+        duration = RECOVER_TIME + RECOVER_ESCALATE * min(self.recover_count, 3)
+        spin_end = RECOVER_REVERSE_T + 0.8
+        if self.recover_time < RECOVER_REVERSE_T:
+            self.drive(-BACK_SPEED, 0.0)            # 1) pull straight off the snag
+        elif self.recover_time < spin_end:
+            self.drive(0.0, side * ALIGN_WMAX)      # 2) spin toward the open side
+        else:
+            # 3) DRIVE AWAY into open space. Reversing/spinning in place kept the
+            # robot at the stuck spot re-attacking the same ball; translating out
+            # toward clear space makes progress and frees a ball that was pinned
+            # against the body (user's observation: go to the open side).
+            self.drive(0.55 * VMAX, side * 0.4)
+        if self.recover_time > duration:
             self.recover_time = 0.0
+            self.recover_anchor = (self.pose_x, self.pose_y)
             self.state = 'SEEK'
             self.state_time = 0.0
 
