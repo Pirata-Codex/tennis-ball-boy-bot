@@ -205,9 +205,21 @@ CourtMarkings {
 # only paints the zone; this is the collidable, friction-tuned pad that makes
 # a delivered ball stay delivered. It is a thin box sitting on the floor, so it
 # adds no step the wheels have to climb.
+#
+# The box is 0.010 m thick and is centred at z = -0.005, so its TOP face is
+# exactly z = 0.000 - flush with the court floor. It used to be centred at
+# z = +0.005, which left a 10 mm lip standing proud of the floor across the
+# whole 1.70 x 1.50 m pad. That lip is a blunt vertical edge, and this simulator
+# treats those as obstacles rather than something to climb over: FINDINGS 5.62
+# records the same thing for a 3 mm ramp-plate lip bulldozing balls instead of
+# letting them roll up. The wheels suffer it identically - the robot has to
+# drive up a step to reach the drop zone, loses drive on the transition, and
+# the approach stalls on the pad edge instead of on the zone. Recessing the pad
+# keeps the friction tuning (it is still the only surface with tennisBall/
+# dropPad contact properties) and removes the step entirely.
 Solid {
   name "dropPad"
-  translation -4.9 1.8 0.005
+  translation -4.9 1.8 -0.005
   contactMaterial "dropPad"
   children [
     Shape {
@@ -357,5 +369,5 @@ DEF BALL9 TennisBall { name "ball9" translation -5.4 -0.80 0.0335 }
 DEF ROBOT TennisCollectorRobot {
   translation -5.3 -2.2 0
   controller  "tennis_collector"
-  controllerArgs [ "--dropZone -4.9 1.8 --bounds -5.75 -0.70 -2.70 2.70 --runtime 150 --seed 110 --explore 1.23831" ]
+  controllerArgs [ "--dropZone -4.9 1.8 --bounds -5.75 -0.70 -2.70 2.70 --runtime 150 --seed 103 --explore 1.76441" ]
 }

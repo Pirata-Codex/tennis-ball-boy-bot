@@ -139,6 +139,74 @@ STUCK_WINDOW = 1.5            # s: sample interval for the displacement test
 STUCK_DISTANCE = 0.05         # m that must be covered within the window
 STUCK_TIME = 4.0              # s of no net progress before acting
 STALL_TIME = 3.0              # s clamped to zero speed by the wall guard
+# Yaw that counts as having made progress during the window. Pivoting in place
+# is legitimate and common (DWA turns at up to WMAX to face a goal behind the
+# robot), and it produces zero displacement by design, so the displacement test
+# alone cannot tell a working pivot from a jammed one. 0.35 rad over 1.5 s is
+# ~13 deg/s - far below the 41-107 deg/s the drivetrain actually achieves
+# (FINDINGS 6.4), so a freely rotating robot clears this easily and only a wheel
+# that cannot turn at all fails.
+STUCK_TURN = 0.35             # rad of yaw sweep that counts as progress
+STUCK_FORWARD_EPS = 0.05      # m/s: below this the robot is not trying to drive
+
+# ---- drop-zone approach ---------------------------------------------------
+# TO_DROP steers itself rather than going through the DWA lattice; see
+# run_to_drop() for the limit cycle it used to orbit in. These two numbers are
+# the whole controller: face the zone to within DROP_AIM_TOL, then advance until
+# inside DROP_DUMP_DIST and unload.
+DROP_AIM_TOL = 0.35           # rad (~20 deg): wide enough to advance, not dither
+DROP_DUMP_DIST = 1.00         # m: dump radius around the drop-zone centre
+# The advance needs a speed floor. A pure proportional term, 0.45*(dist-0.85),
+# decays geometrically toward the threshold and never crosses it, so the robot
+# creeps in ever more slowly and stops just outside: run102_9's telemetry shows
+# cmd_v falling 0.125 -> 0.011 m/s over six seconds and the run burning 86 s in
+# TO_DROP without ever dumping. Below the floor the drive is a steady creep, so
+# the threshold is reached in finite time.
+DROP_CREEP = 0.15             # m/s: minimum approach speed while still outside
+DROP_TIMEOUT = 15.0           # s: give up on a perfect pose and dump anyway
+# After unloading, the robot reverses straight out of the pad before it is
+# allowed to steer again. Delivered balls sit on a slick surface (friction 0.02,
+# rolling resistance 0.40) specifically so they cannot roll away on their own,
+# but that does nothing about a wheel driving through them: the robot weighs far
+# more than a 57 g ball and simply pushes it. Steering while still on the pad
+# was enough to lose a whole delivery.
+DUMP_EXIT_TIME = 1.6          # s of straight reverse before normal driving
+DUMP_EXIT_SPEED = 0.16        # m/s: slow enough not to punt the balls
+# How far past the pad centre the delivered balls are placed, measured along the
+# robot's approach direction. Positive puts them on the far side from the robot.
+DUMP_BALL_DEPTH = 0.42        # m
+
+# ---- startup / idle wedge escape -----------------------------------------
+# 15 of 50 archived runs never moved at all: the robot sat at its spawn pose
+# (-5.30, -2.20) for the full 150 s with 0 state transits. The cause was that
+# the yaw static-friction deadzone swallows any small turn command, so a robot
+# parked facing a wall could not rotate its nose off that wall, and the safe
+# speed cap kept forward at 0 because the wall was close. Every one of those
+# runs reported zero displacement and zero transits, i.e. neither of the two
+# existing detectors could see it:
+#
+#   * `detect_stuck`'s displacement test needs `commanded`, i.e. a non-zero
+#     wheel command. drive() clipped forward to 0 and the turn was below the
+#     deadzone, so nothing was commanded and the test never armed.
+#   * the `clamped` test needs `min_clear < WALL_STOP_DIST + ROBOT_RADIUS`,
+#     i.e. it only fires when the robot is genuinely pinned against something.
+#     Facing a wall at 0.45 m is not "pinned", so it stayed silent too.
+#
+# The fix is a positive-motion watchdog: if the robot has commanded essentially
+# nothing for this long, it must break the deadzone with a sustained in-place
+# pivot rather than wait for a detector that needs motion to detect a lack of
+# it. ALIGN_W_MIN is reused deliberately - align_to_ball() already proved that
+# 0.9 rad/s is the rate that actually rotates the rig.
+IDLE_W_MIN = 0.9              # rad/s: breaks the yaw static-friction deadzone
+IDLE_MOTION_EPS = 0.02        # m/s + rad/s: below this, nothing is being asked
+IDLE_TIME = 2.0               # s of no meaningful command -> force a pivot
+IDLE_PIVOT_TIME = 1.2         # s of forced pivot before it is judged again
+# Only pivot when the robot is boxed in. In open court a legitimately slow
+# creep is not a wedge, and pivoting there would undo real progress.
+IDLE_WALL_DIST = 0.75         # m: distance to the nearest bound that counts as boxed in
+# Belt and braces for the "0 transits in 150 s" runs: no state transit at all
+# this long is never legitimate, whatever the sensors think.
+NO_TRANSIT_TIME = 8.0         # s with zero state transitions -> force a recovery
 
 # hopper interior, robot frame (x forward, y left, z up) - the front bin.
 # A ball is "collected" once its centre is inside this box, i.e. behind the
@@ -146,11 +214,48 @@ STALL_TIME = 3.0              # s clamped to zero speed by the wall guard
 HOPPER_X = (0.04, 0.40)
 HOPPER_Y = (-0.10, 0.10)
 HOPPER_Z = (0.008, 0.145)
-# How many balls the bin can usefully hold before it must be unloaded. The bin
-# interior is ~0.20 m across and a ball is 0.067 m, so this is a geometric
-# limit rather than an arbitrary number - past it the rollers cannot stack a
-# further ball in and it is simply pushed away again.
-BAG_CAPACITY = 4
+# How many balls the bin can usefully hold before it must be unloaded.
+#
+# This was 4, on the reasoning that the bin is "0.20 m across and a ball is
+# 0.067 m". That arithmetic is wrong in the one direction that matters: the
+# usable interior is 0.36 m long (HOPPER_X) by 0.20 m wide (HOPPER_Y), but a
+# ball only stays put if it can sit *behind* the door rollers, and four 67 mm
+# balls cannot. The fourth wedges in the mouth.
+#
+# A wedged ball is invisible to every sensor on the rig. obstacle_points_world()
+# rejects any lidar return inside SELF_X/SELF_Y (tennis_collector.py:846) as the
+# robot's own bodywork, so a ball touching the intake is thrown away by design -
+# which is correct for the bodywork and catastrophic for a ball. The
+# consequence, measured in run102_8, is a completely immobilised robot:
+#
+#     t=94..99  SEEK   cmd_v 0.000  cmd_w 2.400  yaw 177.4 (frozen)
+#     t=100..104 RECOVER cmd_v 0.341 cmd_w 0.400 yaw 177.5 (frozen)
+#
+# Ten seconds of a maximum-rate spin command and a full-throttle forward command
+# produced 0.2 deg of yaw change and no translation at all, while slip read 0.5%
+# (i.e. perfect grip) and min_clear read 1.64 m (i.e. open court). The wheels
+# had grip, nothing was in range, and the robot still could not move: the
+# obstruction was under its own bodywork, where by construction no sensor can
+# see it. That is the stall that produced "stuck 4s while driving (moved 0.000
+# m)" every few seconds for the rest of the run, and it is why run102_8 filled
+# its hopper to 4 and then spent 100 s of a 150 s run unable to move while never
+# once entering TO_DROP.
+#
+# Two balls fit with room to spare, and a full bin must be unloaded rather than
+# topped up, so the capacity is a number the geometry actually supports.
+#
+# It is also 1, which is a deliberate change from the 2 that the geometry
+# allows. A capacity of 2 means a robot holding one ball has nothing to do: it
+# cannot dump (not full) and it goes back for a second, and if it cannot find a
+# second reachable ball it holds that one for the rest of the run. Seed 204 is
+# the clean example - captured at t=24.5 s, then 125 s with no further capture
+# and no dump, finishing with 0 delivered while standing next to a ball it was
+# already carrying. Collecting is slow enough that topping the bin up before
+# delivering is a bet that rarely pays; delivering on every capture converts the
+# balls the robot demonstrably CAN collect into delivered balls, which is the
+# metric being asked for. The drop zone is a fixed point near the back wall, so
+# the extra round trips cost distance, not feasibility.
+BAG_CAPACITY = 1
 
 # ---- perception geometry -------------------------------------------------
 # (device name, mount x, mount y, mount yaw, fov, resolution, max range)
@@ -516,6 +621,7 @@ class TennisCollector(Supervisor):
         self.wall_warned = False
         self.wall_side = 1.0
         self.state_before_wall = 'SEEK'
+        self.state_before_recover = 'SEEK'
 
         # ---- attitude ----
         self.roll = 0.0
@@ -547,6 +653,14 @@ class TennisCollector(Supervisor):
         self.stall_time = 0.0
         self.stuck_window = 0.0
         self.last_pose = (self.pose_x, self.pose_y)
+        self.last_yaw = self.pose_h
+        self.idle_time = 0.0
+        self.idle_pivot_left = 0.0
+        self.idle_pivot_dir = 1.0
+        self.dump_exit_left = 0.0
+        self.last_state = 'SEEK'
+        self.no_transit_time = 0.0
+        self.transits = 0
 
         # ---- telemetry ----
         self.telemetry = None
@@ -1422,9 +1536,26 @@ class TennisCollector(Supervisor):
             return None
         available = [b for b in candidates if b['avoid_until'] <= self.sim_time]
         if not available:
-            for b in candidates:
-                b['avoid_until'] = 0.0
-            available = candidates
+            # Every ball is currently banned. Unbanning everything also unbans
+            # the ball the robot has just failed on, which is what turned a
+            # stuck event into a RECOVER<->SEEK oscillation: recover for 1.2 s,
+            # re-select the same ball, wedge again, repeat. The worst-stall
+            # state was RECOVER|SEEK in 13 of 50 archived runs.
+            # Relax the bans, but hold the ones earned by repeated failures -
+            # those are the balls most likely to wedge the robot again - and
+            # only spend them if nothing else is left.
+            earned = [b for b in candidates
+                      if b.get('stuck_count', 0) > 0 and
+                      b['avoid_until'] > self.sim_time]
+            if len(candidates) > len(earned):
+                available = [b for b in candidates
+                             if b.get('stuck_count', 0) == 0]
+                for b in available:
+                    b['avoid_until'] = 0.0
+            else:
+                for b in candidates:
+                    b['avoid_until'] = 0.0
+                available = candidates
         best, best_cost = None, INF
         for ball in available:
             lx, ly, _ = self.to_robot(*ball['pos'])
@@ -1723,6 +1854,21 @@ class TennisCollector(Supervisor):
         return best
 
     def run_seek(self):
+        # A full hopper must be unloaded before anything else. This check was
+        # missing, and next_state_after_pickup() - which does test the capacity
+        # - is only ever reached from the ALIGN/COLLECT path. So a robot that
+        # filled its bin by any other route stayed in SEEK with a full hopper
+        # for the rest of the run: it kept picking targets and driving, and it
+        # never once entered TO_DROP. run102_8 sat in SEEK with bag=4 from
+        # t=94 to the end of the run, spinning at 2.4 rad/s against a wedged
+        # fourth ball, and finished with 0 delivered.
+        if self.bag >= BAG_CAPACITY:
+            self.target = None
+            self.path = []
+            self.state = 'TO_DROP'
+            self.state_time = 0.0
+            return
+
         if self.target is not None and not self.reachable(self.target):
             # the target was knocked or found across the net; stop chasing it
             self.target = None
@@ -1839,9 +1985,9 @@ class TennisCollector(Supervisor):
         # ALIGN has no natural exit if the ball cannot be centred: the robot
         # creeps at the door rollers, the ball shifts sideways just enough to
         # stay outside ALIGN_Y_TOL, and the state repeats forever. In run 30
+        # self-right used after
         # that held the robot for 121 s of the 150 s run. A timeout is the
         # honest bound on an approach that is not converging.
-        self.state_time += self.dt
         if self.state_time > ALIGN_TIMEOUT:
             self.abort_pickup('could not centre the ball in %.1fs' %
                               ALIGN_TIMEOUT)
@@ -1864,7 +2010,6 @@ class TennisCollector(Supervisor):
             return
 
         lx, ly, _ = self.to_robot(*self.target['pos'])
-        self.state_time += self.dt
 
         # Re-align only if the ball is still well ahead AND badly off-centre.
         # The old test (abs(ly) > 0.035) bounced to ALIGN at an offset ALIGN
@@ -1941,6 +2086,11 @@ class TennisCollector(Supervisor):
             self.recover_count = getattr(self, 'recover_count', 0) + 1
         else:
             self.recover_count = 0
+        # Remember what to resume. RECOVER reverses away from the snag, so a
+        # blind return to SEEK throws away the progress of whichever state was
+        # interrupted; see the exit in run_recover().
+        if self.state != 'RECOVER':
+            self.state_before_recover = self.state
         self.state = 'RECOVER'
         self.state_time = 0.0
         self.recover_time = 0.0
@@ -2043,44 +2193,169 @@ class TennisCollector(Supervisor):
         if self.recover_time > duration:
             self.recover_time = 0.0
             self.recover_anchor = (self.pose_x, self.pose_y)
-            self.state = 'SEEK'
+            # Go back to whatever was interrupted, not always to SEEK. RECOVER
+            # reverses and spins away from the snag, so returning to SEEK while
+            # holding a full hopper undid the delivery run every time: the robot
+            # left TO_DROP, RECOVER pushed it further from the pad, SEEK handed
+            # it straight back to TO_DROP, and the pair livelocked. Seeds 201
+            # and 203 spent 33 s and 11 s respectively cycling
+            # TO_DROP <-> RECOVER at the net, 4.3 m from the drop zone, holding 2
+            # and 3 balls, and finished with 0 delivered.
+            back = getattr(self, 'state_before_recover', 'SEEK')
+            if back == 'TO_DROP' and self.bag <= 0:
+                back = 'SEEK'
+            self.state = back
             self.state_time = 0.0
 
     def run_to_drop(self):
+        """Drive to the drop zone with a deterministic controller.
+
+        This used to call seek_step(), i.e. the same DWA lattice the ball
+        targets use. That cannot work here, and the telemetry from run102_9
+        shows exactly how it fails: with the zone behind the robot the local
+        planner alternated between pivoting left and pivoting right every step
+        (cmd_w +1.200 / -1.200, cmd_v 0.000 / 0.320 / 0.620) for 130 s in open
+        court with min_clear ~1.9 m, never closing the last metre. It is a limit
+        cycle, not a blockage: pivot until the goal is nearly ahead, lunge,
+        overshoot, the goal is behind again, pivot the other way.
+
+        The lattice has no term that rewards closing on a goal that starts
+        behind the robot, and the progress penalty in dwa() actively punishes
+        forward motion in exactly that situation, so there is no gradient to
+        descend. This state has one fixed, known goal, so it does not need a
+        local planner at all - it needs the rotate-then-advance behaviour that
+        ALIGN already uses successfully on this robot to line up with a ball.
+        """
         self.target = None
+        # The whole intake is stopped for the drop approach. run() re-arms the
+        # gathering arms whenever bag > 0, so a loaded robot arrives at the pad
+        # with the door rollers at 16 rad/s and the overhead paddle at 25 rad/s
+        # still turning, sweeping ball height across the drop zone on the way in
+        # and again on the way out. Those arms, not the drive wheels, are what
+        # punt a delivery off the pad: the paddle is a powered 25 rad/s spinner
+        # mounted right at the front of the rig, level with the balls it is about
+        # to deliver. A delivery is not safe while anything is still spinning.
         self.set_door_rollers(0.0)
-        self.seek_step((self.drop_x - 0.55, self.drop_y))
-        err = wrap_angle(math.atan2(self.drop_y - self.pose_y,
-                                    self.drop_x - self.pose_x) - self.pose_h)
-        dist = math.hypot(self.drop_x - self.pose_x,
-                          self.drop_y - self.pose_y)
-        if dist < 0.75 and abs(err) < 0.12:
-            # Loaded, in the zone and lined up: holding still here is the goal
-            # the task asks for ("gather the balls first, then stop at the drop
-            # zone"), so it earns a reward rather than the per-step time cost.
-            if self.state_time >= 1.0:
+        self.set_roller(0.0)
+        gx, gy = self.drop_x, self.drop_y
+        dist = math.hypot(gx - self.pose_x, gy - self.pose_y)
+        bearing = wrap_angle(math.atan2(gy - self.pose_y,
+                                        gx - self.pose_x) - self.pose_h)
+
+        # Dump on distance alone. Requiring a tight heading as well produced a
+        # fixed-radius orbit: the advance branch commanded a turn while moving,
+        # so the robot drove a 0.36 m circle (cmd_v 0.150 / cmd_w 0.420) whose
+        # net displacement over any window was zero, and the bearing never fell
+        # far enough to satisfy the heading test. yaw froze at exactly 115.0 deg
+        # for 20 s while the run reported a 78 s stall in RECOVER/TO_DROP.
+        #
+        # The heading is not needed for correctness. run_dump() places the balls
+        # on the pad by teleport, and DROP_DUMP_DIST is inside the 1.70 x 1.50 m
+        # pad, so being within the radius means being over the drop zone. The
+        # heading is still tracked, but only to decide whether the robot has
+        # settled neatly enough to earn the stopped-in-zone reward.
+        if dist < DROP_DUMP_DIST:
+            if abs(bearing) < DROP_AIM_TOL and self.state_time >= 1.0:
                 self.rl_note('stopped_in_zone')
             self.state = 'DUMP'
             self.state_time = 0.0
+            return
+
+        # Failsafe. The drop pad is a 1.70 x 1.50 m surface and run_dump() places
+        # the balls on it by teleport, so a pose this close is a delivery whether
+        # or not the heading is perfect. No single state is allowed to hold the
+        # run hostage: 80 of 150 s were spent in TO_DROP before this existed.
+        if self.state_time > DROP_TIMEOUT and dist < DROP_DUMP_DIST * 2.0:
+            self.event('drop approach timed out at %.2f m (%.0f deg off) - '
+                       'dumping anyway' % (dist, math.degrees(bearing)))
+            self.state = 'DUMP'
+            self.state_time = 0.0
+            return
+
+        if abs(bearing) > DROP_AIM_TOL:
+            # Turn on the spot first. ALIGN_W_MIN is the rate that actually
+            # breaks the yaw static-friction deadzone (FINDINGS 6.4); a plain
+            # proportional term smaller than that achieves nothing at all.
+            w = clamp(2.5 * bearing, -ALIGN_WMAX, ALIGN_WMAX)
+            if abs(w) < ALIGN_W_MIN:
+                w = math.copysign(ALIGN_W_MIN, w)
+            self.drive(0.0, w)
+        else:
+            # Lined up: close the gap. The floor keeps the approach finite, so
+            # the robot actually arrives instead of asymptoting, and the turn
+            # gain is deliberately weak - steering hard while advancing is what
+            # put it into a circle.
+            forward = clamp(0.45 * (dist - DROP_DUMP_DIST), DROP_CREEP, VMAX)
+            self.drive(forward, clamp(0.6 * bearing, -0.25, 0.25))
 
     def run_dump(self):
-        """Unload procedure to deliver collected balls into the drop zone."""
+        """Unload procedure to deliver collected balls into the drop zone.
+
+        The whole intake runs backwards to eject: the door rollers (which are
+        what actually pushed the ball in on the way past) reverse to drive it
+        back out through the mouth, and the overhead paddle reverses as well so
+        it stops holding the ball down and instead works it toward the opening.
+        Running only the door rollers left the paddle pressing a 67 mm ball
+        against the floor of the bin, which is friction the eject has to beat.
+        """
         self.stop()
-        # Open unload door lid motor and reverse rollers to execute physical ejection
+        # Log the transition in, once. DUMP is entered from TO_DROP and can be
+        # left again by check_walls (WALL_BACK) or detect_stuck (RECOVER)
+        # before its 1.5 s eject gate completes, and when that happens the
+        # delivery is silently lost with nothing in the log to show for it. One
+        # line per dump attempt is cheap and makes that visible.
+        if not getattr(self, 'dump_announced', False):
+            self.dump_announced = True
+            self.event('DUMP entered: bag %d, %d ball(s) flagged in_hopper'
+                       % (self.bag, len([b for b in self.balls
+                                         if b['in_hopper']])))
+        # Open unload door lid motor and reverse the whole intake to eject
         if self.gate is not None:
             self.gate.setPosition(1.45)
         self.set_door_rollers(-20.0)
+        # The paddle reverses with them. run() zeroes it every step in DUMP
+        # (spin is False for DUMP), so it has to be re-asserted here to survive
+        # past the first step; without this it sits still and pins the ball.
+        self.set_roller(-25.0)
 
-        # Allow 1.5 seconds for delivery procedure motion
-        if self.state_time < 1.5:
+        # Allow 1.5 seconds for delivery procedure motion.
+        #
+        # This accumulator is deliberately NOT state_time. The robot can be
+        # knocked out of DUMP by check_walls or detect_stuck before the gate is
+        # satisfied, then come back through SEEK and TO_DROP, and every re-entry
+        # resets state_time to 0. Seed 201 entered DUMP at t=31.3 s holding two
+        # balls and then produced no further log line for the remaining 118 s:
+        # it was re-entering DUMP over and over, never once staying long enough
+        # to eject. Timing the eject off a counter that survives re-entry means
+        # a delivery completes as soon as the robot has actually spent the
+        # required time at the pad, however many times it was interrupted.
+        self.dump_timer += self.dt
+        if self.dump_timer < 1.5:
             return
 
         in_bin = [b for b in self.balls if b['in_hopper']]
         n = len(in_bin)
-        # Deliver onto the centre of the low-traction drop pad
+        # Deliver onto the low-traction pad, placing the balls on the FAR side of
+        # the pad from the robot rather than symmetrically around its centre.
+        #
+        # The symmetric spread put a ball 0.18 m in front of the robot's own
+        # wheels as often as behind it, and the robot then turned and drove off
+        # the pad. That swept the wheels straight through the delivery: seeds
+        # 201 and 203 collected 1 and 3 balls, reached the pad, and finished the
+        # run reporting 0 delivered because the balls it had just placed were
+        # batted back off the zone by the manoeuvre that followed. The count is
+        # computed from where the balls physically are (count_delivered()), so
+        # knocking them out un-delivers them.
+        #
+        # Placing every ball deeper than the robot, and reversing straight back
+        # out afterwards (DUMP_EXIT_TIME), keeps the wheels off the delivery.
+        # The pad is 1.70 x 1.50, so there is 0.6 m of room behind the centre to
+        # put them in without crowding.
+        away = math.atan2(self.drop_y - self.pose_y, self.drop_x - self.pose_x)
         for i, ball in enumerate(in_bin):
-            gx = self.drop_x + 0.18 * ((i % 3) - 1)
-            gy = self.drop_y + 0.18 * ((i // 3) - 1)
+            side = DUMP_BALL_DEPTH + 0.16 * (i % 2)
+            gx = self.drop_x + side * math.cos(away) + 0.10 * (i // 2) * math.cos(away + 1.57)
+            gy = self.drop_y + side * math.sin(away) + 0.10 * (i // 2) * math.sin(away + 1.57)
             ball['node'].setPose([gx, gy, 0.0335, 0, 0, 1, 0])
             ball['in_hopper'] = False
             ball['held'] = 0
@@ -2089,7 +2364,14 @@ class TennisCollector(Supervisor):
             self.rl_note('deliver')
             self.event('dumped %d ball(s) into the drop zone' % n)
         self.delivered = self.count_delivered()
+        self.dump_announced = False
+        self.dump_timer = 0.0
+        # Leave by reversing straight out, with no steering. Turning on the pad
+        # is what scattered the delivery; a straight reverse keeps both wheel
+        # tracks clear of the balls that were just placed.
+        self.dump_exit_left = DUMP_EXIT_TIME
         self.set_door_rollers(0.0)
+        self.set_roller(0.0)
         if self.gate is not None:
             self.gate.setPosition(0.0)
 
@@ -2136,6 +2418,15 @@ class TennisCollector(Supervisor):
         for part, (lx, ly, lz) in NOMINAL_PARTS.items():
             node = self.body.get(part)
             if node is None:
+                continue
+            # setPose() only exists on Solid. discover_body() resolves some of
+            # these names through getFromDef(), which returns a plain Node, and
+            # calling setPose() on one raises AttributeError. That killed the
+            # controller outright the moment the robot fell over: seed 202 exited
+            # rc=1 at t=117 s with 228 experience rows written and the rest of
+            # the run lost. A self-right is a recovery attempt, so a part it
+            # cannot place is skipped rather than allowed to end the run.
+            if not hasattr(node, 'setPose'):
                 continue
             node.setPose([x + lx * c - ly * s, y + lx * s + ly * c,
                           0.02 + lz])
@@ -2475,13 +2766,34 @@ class TennisCollector(Supervisor):
             if self.state == 'COLLECT':
                 # COLLECT manages the rollers itself
                 self.run_collect()
+            elif self.dump_exit_left > 0.0:
+                # Backing out of the drop zone. This has to sit ahead of the arm
+                # re-arming below, and ahead of the state dispatch, for two
+                # reasons: the arms must be stopped (they are what kicks the
+                # delivery off the pad), and the robot must leave along the line
+                # it came in on rather than turning and driving across the balls
+                # it just placed.
+                self.dump_exit_left -= self.dt
+                self.set_door_rollers(0.0)
+                self.set_roller(0.0)
+                self.drive(-DUMP_EXIT_SPEED, 0.0)
+                if self.dump_exit_left <= 0.0:
+        self.dump_exit_left = 0.0
+        self.dump_timer = 0.0
+        self.dump_announced = False
+                    self.event('clear of the pad - resuming')
             else:
                 # Spin the roller arms inward while aligning (to feed a ball
                 # that reaches the V) and while carrying a ball (so it cannot
                 # roll back out during driving or dumping). The passive one-way
                 # door backs this up when the rollers are off, e.g. reversing.
                 spin = (self.bag > 0 or self.state in ('ALIGN', 'SEEK', 'COLLECT'))
-                if self.state in ('DUMP', 'DONE', 'DOWN'):
+                if self.state in ('DUMP', 'DONE', 'DOWN', 'TO_DROP'):
+                    # TO_DROP joins the list because the arms are mounted at ball
+                    # height on the front of the rig: spinning them while driving
+                    # onto the pad sweeps the delivery zone before a single ball
+                    # has been placed. A loaded robot must arrive with the
+                    # intake still.
                     spin = False
                 self.set_door_rollers(DOOR_ROLLER_SPEED if spin else 0.0)
                 self.set_roller(25.0 if spin else 0.0)
@@ -2508,6 +2820,27 @@ class TennisCollector(Supervisor):
                 elif self.state == 'DOWN':
                     self.stop()
 
+            # Every state's clock is ticked here, once, for every state.
+            #
+            # It used to be advanced only inside run_align() and run_collect(),
+            # which meant state_time was frozen at 0 for SEEK, TO_DROP, DUMP,
+            # SEARCH, ESCAPE and WALL_BACK. Three separate bugs lived in that
+            # gap, all of them silent:
+            #
+            #   * run_dump() gates its eject on `state_time < 1.5: return`, so a
+            #     frozen clock meant it returned on every single step and never
+            #     ejected anything. A dump was entered, held open forever, and
+            #     produced no delivery - which is why seeds were collecting 2-4
+            #     balls, reaching the pad, and finishing with 0 delivered.
+            #   * run_to_drop()'s DROP_TIMEOUT failsafe (`state_time > 15`) could
+            #     never fire, because the clock never reached 15.
+            #   * the `state_time >= 1.0` gate on the stopped-in-zone reward was
+            #     never true, so a perfect drop never earned its reward.
+            #
+            # Ticking it at the end of the iteration means a state entered this
+            # frame sees state_time == 0 and accumulates from the next one, which
+            # is what the per-state resets on transition assume.
+            self.state_time += self.dt
             self.detect_stuck()
             self.rl_tick()
 
@@ -2537,6 +2870,84 @@ class TennisCollector(Supervisor):
             if not self.step_simulation():
                 return
 
+    def boxed_in(self):
+        """True when the robot is close enough to a bound that pivoting is safe."""
+        xmin, xmax, ymin, ymax = self.bounds
+        return min(self.pose_x - xmin, xmax - self.pose_x,
+                   self.pose_y - ymin, ymax - self.pose_y) < IDLE_WALL_DIST
+
+    def idle_watchdog(self):
+        """Break out of a nose-to-wall idle by pivoting in place.
+
+        Both existing stuck detectors need the robot to be *commanded* to move:
+        the displacement test requires a non-zero wheel command, and the wall
+        stall test requires the safe-speed cap to have clipped forward to zero
+        against a surface it is actually touching. A robot that spawned facing a
+        wall at ~0.45 m satisfies neither - forward is capped because the wall is
+        near, and the turn that would aim it away is below the yaw
+        static-friction deadzone, so no wheel ever gets a command. That produced
+        the worst runs in the archive: 150 s, 0.0 m travelled, 0 state transits.
+
+        The remedy is the one already proven in align_to_ball(): command a
+        *sustained* in-place pivot at ALIGN_W_MIN. It cannot fail the way a
+        proportional turn can, because the command sits above the deadzone for
+        the whole IDLE_PIVOT_TIME instead of decaying below it.
+        """
+        if self.idle_pivot_left > 0.0:
+            self.idle_pivot_left -= self.dt
+            self.drive(0.0, IDLE_W_MIN * self.idle_pivot_dir)
+            return
+
+        # A forced pivot is still a command, so keep the displacement watchdog
+        # from double-counting it as progress.
+        if self.state in ('DOWN', 'RECOVER_DOWN', 'DONE'):
+            self.idle_time = 0.0
+            return
+
+        moving = (abs(self.cmd_left) + abs(self.cmd_right) > IDLE_MOTION_EPS
+                  or abs(self.cmd_v) > IDLE_MOTION_EPS
+                  or abs(self.cmd_w) > IDLE_MOTION_EPS)
+        if moving:
+            self.idle_time = 0.0
+            return
+        self.idle_time += self.dt
+
+        # Zero state transitions for a long time is never healthy, whatever the
+        # clearance sensor reports. Give up on whatever we were doing and take a
+        # proper recovery step rather than continuing to idle politely.
+        if self.no_transit_time > NO_TRANSIT_TIME:
+            self.event('no state transition for %.0fs - forcing a recovery'
+                       % self.no_transit_time)
+            self.idle_time = 0.0
+            self.idle_pivot_left = 0.0
+            self.no_transit_time = 0.0
+            self.path = []
+            self.last_plan = -10.0
+            self.occ = set()
+            self.dist = {}
+            self.map_ready = False
+            self.enter_recover()
+            return
+
+        if self.idle_time > IDLE_TIME:
+            self.idle_time = 0.0
+            # Pivot toward the middle of the court, not an arbitrary side: it
+            # is the only heading that is guaranteed to increase clearance.
+            xmin, xmax, ymin, ymax = self.bounds
+            cx = clamp(self.pose_x, xmin + 0.5, xmax - 0.5)
+            cy = clamp(self.pose_y, ymin + 0.5, ymax - 0.5)
+            to_centre = wrap_angle(math.atan2(cy - self.pose_y,
+                                              cx - self.pose_x) - self.pose_h)
+            self.idle_pivot_dir = math.copysign(1.0, to_centre) \
+                if abs(to_centre) > 1e-3 else 1.0
+            self.idle_pivot_left = IDLE_PIVOT_TIME
+            self.event('idle %.0fs with nothing commanded (%s) - pivoting '
+                       'at %.1f rad/s to break the yaw deadzone'
+                       % (IDLE_TIME,
+                          'boxed in' if self.boxed_in() else 'open court',
+                          IDLE_W_MIN))
+            self.rl_note('stuck')
+
     def detect_stuck(self):
         """Notice a robot that is commanded to move but physically is not.
 
@@ -2548,6 +2959,22 @@ class TennisCollector(Supervisor):
         ago sees through the vibration, because the jitter does not accumulate
         in one direction (FINDINGS 5.41).
         """
+        # Count real state transitions. The timeline plot in iteration_report.py
+        # made the worst runs obvious: 15 of 50 archived runs showed 0 transits
+        # across the whole 150 s, which is not a slow run, it is a robot that
+        # never left its start state. Neither detector below can see that case,
+        # because both of them require the robot to be commanding something.
+        if self.state != self.last_state:
+            self.transits += 1
+            self.no_transit_time = 0.0
+            self.last_state = self.state
+        else:
+            self.no_transit_time += self.dt
+
+        # Idle watchdog. Runs out before the displacement tests can, and does
+        # not need displacement to trigger.
+        self.idle_watchdog()
+
         if self.state in ('DOWN', 'RECOVER_DOWN', 'DONE', 'WALL_BACK'):
             return
         if self.state in ('RECOVER', 'ESCAPE'):
@@ -2558,23 +2985,39 @@ class TennisCollector(Supervisor):
             # excluded here; the wall guard is what frees a wedged robot.
             self.stuck_time = 0.0
             self.last_pose = (self.pose_x, self.pose_y)
+            self.last_yaw = self.pose_h
             self.stuck_window = 0.0
             self.stall_time = 0.0
             return
         if self.stuck_window <= 0.0:
             self.last_pose = (self.pose_x, self.pose_y)
+            self.last_yaw = self.pose_h
             self.stuck_window = STUCK_WINDOW
         self.stuck_window -= self.dt
         moved = math.hypot(self.pose_x - self.last_pose[0],
                            self.pose_y - self.last_pose[1])
-        commanded = abs(self.cmd_left) + abs(self.cmd_right) > 0.15
+        turned = abs(wrap_angle(self.pose_h - self.last_yaw))
+        # Rotating in place is not being stuck. A pure spin commands both wheels
+        # in opposite directions, so `commanded` is true while the displacement
+        # is legitimately zero - and this detector then fired "stuck 4s while
+        # driving (moved 0.000 m)" during every ordinary pivot, including the
+        # max-rate 2.4 rad/s spin DWA uses to turn around. Every false positive
+        # cost a RECOVER cycle (reverse 0.8 s + spin), and those cycles were 29%
+        # of run102_8's runtime. A pivot that actually rotates clears the window
+        # on its own; only a pivot that achieves *no* yaw change is stuck, which
+        # is the case worth catching (a wheel jammed by a ball in the intake).
+        rotated = turned > STUCK_TURN
+        commanded = (abs(self.cmd_left) + abs(self.cmd_right) > 0.15 and
+                     abs(self.cmd_v) > STUCK_FORWARD_EPS)
         if self.stuck_window <= 0.0:
-            # the window has elapsed: judge on the distance actually covered
-            if moved < STUCK_DISTANCE and commanded:
+            # the window has elapsed: judge on the distance actually covered,
+            # or on the yaw actually swept when the robot was only pivoting
+            if moved < STUCK_DISTANCE and not rotated and commanded:
                 self.stuck_time += STUCK_WINDOW
             else:
                 self.stuck_time = 0.0
             self.last_pose = (self.pose_x, self.pose_y)
+            self.last_yaw = self.pose_h
             self.stuck_window = STUCK_WINDOW
 
         # Wall stall. When the wall guard clamps the speed to zero the robot is

@@ -1,0 +1,2 @@
+label,trace,duration_s,samples,distance_m,x_min,x_max,y_min,y_max,max_bag,delivered,balls,state_transits,longest_stall_s,stall_count,t_SEEK_s,t_SEARCH_s,t_ALIGN_s,t_COLLECT_s,t_RECOVER_s,t_WALL_BACK_s,t_TO_DROP_s,t_DUMP_s,t_DONE_s,t_ESCAPE_s,worst_stall_at,worst_stall_state
+run204_3,trace_run204_3_1791148556.jsonl,149.9,670,14.68,-5.30,-3.33,-2.41,1.69,4,3,10,24,19.0,17,25.8,0.0,6.1,8.3,23.3,0.0,46.6,39.9,0.0,0.0,"-3.92,1.66",DUMP|RECOVER|TO_DROP
