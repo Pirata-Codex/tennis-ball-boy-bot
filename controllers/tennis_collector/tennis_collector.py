@@ -159,7 +159,9 @@ STUCK_FORWARD_EPS = 0.05      # m/s: below this the robot is not trying to drive
 # the whole controller: face the zone to within DROP_AIM_TOL, then advance until
 # inside DROP_DUMP_DIST and unload.
 DROP_AIM_TOL = 0.35           # rad (~20 deg): wide enough to advance, not dither
-DROP_DUMP_DIST = 1.00         # m: dump radius around the drop-zone centre
+DROP_DUMP_DIST = 0.60         # m: dump radius around the drop-zone centre.
+# Must be inside the pad (half-sizes 0.85 x 0.75). At 1.00 the robot dumped
+# from y = 0.81 with the pad starting at 1.05, i.e. before reaching it.
 # The advance needs a speed floor. A pure proportional term, 0.45*(dist-0.85),
 # decays geometrically toward the threshold and never crosses it, so the robot
 # creeps in ever more slowly and stops just outside: run102_9's telemetry shows
