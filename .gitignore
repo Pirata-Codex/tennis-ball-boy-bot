@@ -17,3 +17,5 @@ __pycache__/
 # record lives in logs/iterations/ and IS tracked)
 logs/telemetry_world.csv
 logs/trace_world.jsonl
+logs/collector_init_error.txt
+logs/collector_run_error.txt

@@ -3101,19 +3101,18 @@ class TennisCollector(Supervisor):
 
 
 def _save_crash(name):
-    """Print the traceback to the console and save it under %TEMP%\\kilo.
+    """Print the traceback to the console and save it next to the run logs.
 
-    The folder used to be assumed to exist. On a machine without it the
-    open() itself raised inside the handler, so the run handler never paused
-    the simulation: the robot froze with a dead controller and Webots had to
-    be closed by hand.
+    It used to go to %TEMP%\\kilo, a folder nothing created. On a machine
+    without it the open() raised inside the handler, so the simulation was
+    never paused: the robot froze with a dead controller and Webots had to be
+    closed by hand.
     """
     import traceback as _tb
     _tb.print_exc()
     try:
-        folder = os.path.join(os.environ.get('TEMP', '.'), 'kilo')
-        os.makedirs(folder, exist_ok=True)
-        with open(os.path.join(folder, name), 'w') as fh:
+        os.makedirs(TELEMETRY_DIR, exist_ok=True)
+        with open(os.path.join(TELEMETRY_DIR, name), 'w') as fh:
             _tb.print_exc(file=fh)
     except OSError:
         pass
