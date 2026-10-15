@@ -357,5 +357,5 @@ DEF BALL9 TennisBall { name "ball9" translation -5.4 -0.80 0.0335 }
 DEF ROBOT TennisCollectorRobot {
   translation -5.3 -2.2 0
   controller  "tennis_collector"
-  controllerArgs [ "--dropZone -4.9 1.8 --bounds -5.75 -0.70 -2.70 2.70 --runtime 150 --seed 110 --explore 1.23831" ]
+  controllerArgs [ "--dropZone -4.9 1.8 --bounds -5.75 -0.70 -2.70 2.70 --runtime 1.5e+06 --seed 101 --explore 1.56394" ]
 }
