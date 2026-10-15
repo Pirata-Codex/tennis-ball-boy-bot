@@ -3100,22 +3100,43 @@ class TennisCollector(Supervisor):
         return False
 
 
-if __name__ == '__main__':
+def _save_crash(name):
+    """Print the traceback to the console and save it under %TEMP%\\kilo.
+
+    The folder used to be assumed to exist. On a machine without it the
+    open() itself raised inside the handler, so the run handler never paused
+    the simulation: the robot froze with a dead controller and Webots had to
+    be closed by hand.
+    """
     import traceback as _tb
+    _tb.print_exc()
+    try:
+        folder = os.path.join(os.environ.get('TEMP', '.'), 'kilo')
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, name), 'w') as fh:
+            _tb.print_exc(file=fh)
+    except OSError:
+        pass
+
+
+if __name__ == '__main__':
     try:
         controller = TennisCollector()
     except Exception:
-        with open(os.path.join(os.environ.get('TEMP', '.'), 'kilo',
-                               'collector_init_error.txt'), 'w') as fh:
-            _tb.print_exc(file=fh)
+        _save_crash('collector_init_error.txt')
         raise
     try:
         controller.run()
     except Exception:
-        with open(os.path.join(os.environ.get('TEMP', '.'), 'kilo',
-                               'collector_run_error.txt'), 'w') as fh:
-            _tb.print_exc(file=fh)
+        _save_crash('collector_run_error.txt')
         try:
-            controller.simulationQuit(1)
+            # Batch/training runs use --mode=fast and must still end, so quit
+            # there. Any other mode is someone watching: pause instead, so the
+            # error stays readable in the console.
+            if controller.simulationGetMode() == controller.SIMULATION_MODE_FAST:
+                controller.simulationQuit(1)
+            else:
+                controller.simulationSetMode(controller.SIMULATION_MODE_PAUSE)
         except Exception:
             pass
+        sys.exit(1)
