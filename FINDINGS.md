@@ -2370,7 +2370,8 @@ over an edge is a contact-geometry trap — this fan is exactly that mechanism.
     and `run_dump()` called `Node.setPose()`, which does not exist (now
     `translation.setSFVec3f()` + `resetPhysics()`). Both killed the
     controller on the first DUMP; the trace was in
-    `%TEMP%\kilo\collector_run_error.txt`, not on stdout.
+    `%TEMP%\kilo\collector_run_error.txt`, not on stdout. Crash traces now
+    go to the console and `logs/collector_run_error.txt`.
 
 **Measured:**
 
