@@ -1011,7 +1011,13 @@ approach, to be implemented rather than hand-tuned:
 * **Reward**: `+1` on `in_hopper`, a small shaping term for reducing
   robot-frame ball distance, and a penalty for reverse motion spilling a
   carried ball.
-* **Experience storage**: a persistent replay buffer on disk (not just in
+
+### 6.6 Dual Side-Pinching Conveyor Belts (`Track`) + 6-Blade Plastic Fan Redesign
+
+1. **Root Cause of Detached Front Casters Fixed:** Inspection of `TennisCollectorRobot.proto` revealed that `BODY_SKID_LEFT` and `BODY_SKID_RIGHT` were bare `Solid` nodes with `Physics` directly inside `BODY_CHASSIS` without a `HingeJoint` or `BallJoint`. Per §5.1, unjointed child `Solid`s with `Physics` detach at `t = 0`. Both front spherical casters are now mounted via `HingeJoint`s (`axis 0 1 0`, `anchor 0.15 ±0.13 0.03`) with `contactMaterial "caster"` (`coulombFriction 0.03`), providing rigid vertical support and zero-scrub in-place pivoting.
+2. **Stage 1 — Dual Side-Guiding Conveyor Belts (`Track` + `LinearMotor`):** Replaced the cylindrical gathering arms with two Webots `Track` conveyor belt walls (`BODY_ARM_ROLLER_LEFT` and `BODY_ARM_ROLLER_RIGHT`) angled at `±0.20 rad` from `x = 0.61 m` (front entrance gap `0.16 m`) to `x = 0.35 m` (throat gap `0.074 m`, `7 mm` wider than the `0.067 m` tennis ball). Driven at `-0.80 m/s` via `LinearMotor`, the belts outrun the robot's forward approach speed (`0.18–0.62 m/s`) and pull balls inward along both flanks without bulldozing or pinching.
+3. **Stage 2 — 6-Blade Firm Plastic Fan (`intakeRoller`):** Repositioned to `0.33 0 0.082` with `axis 0 -1 0` and `maxTorque 0.8 N·m`. Replaced the smooth cylinder `boundingObject` (which previously hid the visual vanes from ODE collision) with a `Group` containing the hub cylinder and 6 physical `Box` blades (`0.036 × 0.160 × 0.005 m`). Both the conveyors (`mass 0.05 kg`) and fan (`mass 0.06 kg`) use `density -1` so the robot's Center of Mass stays over the drive axle.
+4. **Controller Fix (`run_collect`):** Fixed an omission in `tennis_collector.py` where `run_collect()` spun `set_door_rollers()` but never called `set_roller()`, and inverted the fan axis so `+24.0 rad/s` sweeps the bottom blades backward (`-X`) and upward (`+Z`) over the `12 mm` retention ledge (`x = 0.30 m`).
   memory), written under `data/` as append-only JSONL. The buffer is **not a
   per-tick dump** — it stores optimized **transitions** `(s, a, r, s')` with
   three reductions so the policy is not trained on thousands of near-identical
