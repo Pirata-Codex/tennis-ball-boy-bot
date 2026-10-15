@@ -2293,3 +2293,99 @@ This is the first change this round that improved delivery on an unforgiving
 layout without breaking the straight case. The lesson of Phases 6–8: fix the
 *base* (turning, wedge-free casters) and keep the *proven* roll-under intake;
 do not try to make a roller take in a rigid ball.
+
+### 6.6 Dual side conveyor belts (`Track`) + 6-blade fan redesign
+
+Branch `feat/redesign`. Built from an external design proposal, with the
+corrections from a second review applied, then tuned in Webots (items 7-9).
+The Phase 8 baseline was `mech_test` 1/1 delivered and `mech_test_offset`
+bag 2 / delivered 2.
+
+1. **Front casters on `HingeJoint`s.** `skidLeft`/`skidRight` were bare
+   `Solid`s with `Physics` and no joint, which 5.1 says detach at `t = 0`.
+   Each is now the `endPoint` of a passive `HingeJoint` (`axis 0 1 0`, anchor =
+   translation `0.15 ±0.13 0.03`) and keeps `contactMaterial "caster"`.
+   Open question: Phase 8 measured a *gain* with the unjointed casters, so
+   either 5.1 is wrong about unjointed Solids or Phase 8 worked with loose
+   casters. Compare a rendered run before trusting either.
+2. **`bumperLidar` restored** at `0.50 0 0.30` (2.8 rad FOV, 1.2 m) and added
+   as the third entry of `FAN_DEFS`, which `bumper_front_range()` already
+   expected. It now also feeds the obstacle map.
+3. **Stage 1 — side conveyor belts.** The V roller arms were replaced by two
+   `Track` belts (`0.26 × 0.024 × 0.060`, `±0.20 rad`, centres
+   `0.48 ±0.0755 0.040`, `LinearMotor`s keep the names
+   `armRollerLeftMotor`/`armRollerRightMotor`). The proposal's centres
+   (`±0.088`) gave a 204/99 mm opening instead of the intended 180/74; at
+   `±0.0755` it is ≈178 mm at the mouth and ≈75 mm at the throat.
+   `contactMaterial "conveyorBelt"`, with `tennisBall`↔`conveyorBelt`
+   `coulombFriction 1.8` added to every world that had a `roller` entry.
+   Driven inward at 0.80 m/s (both motors negative; `set_door_rollers()` keeps
+   "positive = inward"). The throat is wider than the ball, so a dead-centre
+   ball touches neither belt — the belts guide and carry off-centre balls,
+   the fan has to take centred ones.
+4. **Stage 2 — 6-blade fan (`intakeRoller`).** Hub `0.33 0 0.082`, tip radius
+   0.052 (lowest sweep z = 0.030), blades in both `children` and the bounding
+   `Group` (the old paddle's vanes were visual only). Width cut from the
+   proposal's 0.160 m to **0.068 m** so it fits the 75 mm throat instead of
+   hitting the belts. **Axis `0 1 0` with positive speed** (+24 rad/s): by the
+   right-hand rule this moves the bottom of the wheel to −x, i.e. rearward.
+   The proposal's `axis 0 -1 0` with +24 would have thrown balls back out.
+   Rear swing at the ledge (x = 0.30) is at z ≈ 0.040, above the 0.014 ledge
+   top — the collision that got the 6.3 paddle-wheel reverted.
+5. **Bin / pit.** Walls `x 0.05–0.35`, ledge moved to `x = 0.30`, hood to
+   `0.34 0 0.165`; `HOPPER_X = (0.04, 0.31)`, `COLLECT_ABORT_X = 0.18`.
+6. **Controller.** `set_roller()` is live (it was documented as a no-op).
+   `run_collect()` now sets the fan explicitly (run() already spun it in
+   COLLECT, so this was not a bug, just redundant safety), `abort_pickup()`
+   stops it, `run_dump()` reverses belts (−0.80 m/s) and fan (−20 rad/s).
+   Also fixed a committed indentation error in `run()`'s dump-exit block that
+   stopped `tennis_collector.py` from compiling at all.
+
+Not adopted from the review: making the root `Robot` the 12 kg body. 5.3
+keeps the token-mass root deliberately so joint `m0` is the chassis.
+
+Known risks to check first: the belts' surface-velocity sign (flip
+`set_door_rollers()` if balls are pushed out), Track behaviour as an unjointed
+child of the chassis, and §5.23(4)'s warning that a roller lifting a rigid ball
+over an edge is a contact-geometry trap — this fan is exactly that mechanism.
+
+**Tuning that the runs forced** (`TENNIS_NO_POLICY=1`; a supervisor
+`getContactPoints()` probe on the target ball located each blocker):
+
+7. **Hub height 0.082 -> 0.092.** At 0.082 the hub bottom (0.064) was below the
+   ball top (0.067) and held the ball at x = 0.40, in front of the fan (0/1).
+   At 0.092 the hub clears by 7 mm and the ball reaches the axle.
+8. **Fan direction confirmed empirically.** +24 rad/s about `0 1 0` draws the
+   ball in; -24 pushed it back out to x = 0.37-0.55. The proposal's sign
+   (`0 -1 0`, +24) was wrong.
+9. **Ledge and bin-floor plate removed from the collision.** The chassis rides
+   ~2° nose-up (`pitch` ~ +2.3 even when stationary), which lifts anything at
+   x = 0.30 by ~15 mm. Contacts showed the 12 mm ledge touching the ball at
+   z = 0.028 (its equator), and with the ledge gone the 3 mm floor plate edge
+   at z = 0.019; either pinned the ball under the fan at x = 0.32-0.33, just
+   outside `HOPPER_X`. A 6 mm ledge and 2.5 N·m fan torque did not help. The
+   floor stays as a visual; balls in the bin rest on the court.
+10. **Two controller crashes from the previous commit** (never run before
+    because the file did not compile): `dump_timer` was never initialised,
+    and `run_dump()` called `Node.setPose()`, which does not exist (now
+    `translation.setSFVec3f()` + `resetPhysics()`). Both killed the
+    controller on the first DUMP; the trace was in
+    `%TEMP%\kilo\collector_run_error.txt`, not on stdout.
+
+**Measured:**
+
+| world | Phase 8 | this design |
+| --- | --- | --- |
+| `mech_test` (1 straight) | 1/1 | **1/1** (16.9 s) |
+| `mech_test_offset` (3 off-centre) | 2/3 | **3/3** (34.8 s) |
+| `tennis_court_flap`, 150 s, rendered | 4/10 (5.51) | **2/10** |
+
+The rendered court run loaded with zero `error` lines. Its 2/10 is a
+**mobility** failure, not an intake one: after the second capture (t = 28 s)
+the robot froze at (-4.21, 1.05) for 110 s — pose identical to 3 decimals
+through eight forward/reverse recoveries. The carried ball sat at robot-frame
+(0.11, +0.08), against the left caster sphere, which pokes ~13 mm into the
+bin past the wall line (y = 0.113). Suspected wedge, not yet confirmed.
+Also seen: the first dump reported `0 total delivered` although the ball was
+placed on the pad.
+

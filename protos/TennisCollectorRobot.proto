@@ -2,7 +2,7 @@
 # license: Apache License 2.0
 # license url: https://www.apache.org/licenses/LICENSE-2.0
 # ---------------------------------------------------------------------------
-# TennisCollectorRobot - Active Overhead Intake Paddle + Low Floor
+# TennisCollectorRobot - Side Conveyor Belts + 6-Blade Fan + Low Floor
 #
 # Chassis-local frame:  +x forward, +y left, +z up, origin on the ground
 # directly beneath the centre of the robot.
@@ -66,21 +66,21 @@ PROTO TennisCollectorRobot [
 
           # bin left wall
           Transform {
-            translation 0.22  0.120 0.075
+            translation 0.20  0.120 0.075
             children [
               Shape {
                 appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.34 0.014 0.14 }
+                geometry Box { size 0.30 0.014 0.14 }
               }
             ]
           }
           # bin right wall
           Transform {
-            translation 0.22 -0.120 0.075
+            translation 0.20 -0.120 0.075
             children [
               Shape {
                 appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.34 0.014 0.14 }
+                geometry Box { size 0.30 0.014 0.14 }
               }
             ]
           }
@@ -96,196 +96,255 @@ PROTO TennisCollectorRobot [
           }
           # bin rear lid
           Transform {
-            translation 0.17 0 0.150
+            translation 0.16 0 0.150
             children [
               Shape {
                 appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.22 0.24 0.012 }
+                geometry Box { size 0.20 0.24 0.012 }
               }
             ]
           }
-          # entrance roof hood (raised to z=0.170 to give space for overhead paddle spin)
+          # entrance roof hood (clears the fan wheel top at z=0.144)
           Transform {
-            translation 0.38 0 0.170
+            translation 0.34 0 0.165
             children [
               Shape {
                 appearance PBRAppearance { baseColor 0.20 0.20 0.24 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.20 0.24 0.010 }
+                geometry Box { size 0.18 0.24 0.010 }
               }
             ]
           }
 
           # ==============================================================
-          # LOW FLOOR & DROP-STEP PIT (Open Entrance at z=0)
+          # BIN FLOOR (visual only; not in the collision, see FINDINGS 6.6)
           # ==============================================================
-          # bin floor pit (x=0.06 to x=0.32, z=0.002)
+          # bin floor plate (x=0.06 to x=0.30, z=0.002)
           Transform {
-            translation 0.19 0 0.002
+            translation 0.18 0 0.002
             children [
               Shape {
                 appearance PBRAppearance { baseColor 0.20 0.20 0.22 metalness 0.1 roughness 0.8 }
-                geometry Box { size 0.26 0.22 0.003 }
+                geometry Box { size 0.24 0.22 0.003 }
               }
             ]
           }
-          # drop-step retention ledge (x=0.32, height 12 mm)
-          Transform {
-            translation 0.32 0 0.008
+
+          # ==============================================================
+          # STAGE 1: DUAL SIDE-PINCHING CONVEYOR BELTS (Webots Track nodes)
+          # ==============================================================
+          # Each belt is a 0.26 x 0.024 x 0.060 box angled 0.20 rad inward.
+          # Centres at y = +/-0.0755 give an inner gap of ~0.178 m at the
+          # mouth (x ~ 0.61) and ~0.075 m at the throat (x ~ 0.35), 8 mm wider
+          # than the 0.067 m ball. Track moves its whole contact surface along
+          # its local x, so a NEGATIVE LinearMotor velocity on BOTH belts sweeps
+          # the inner faces rearward into the fan (set_door_rollers() does the
+          # sign). Light (0.05 kg, density -1) so the CoM does not move forward.
+          # ---- left side conveyor belt ----
+          DEF BODY_ARM_ROLLER_LEFT Track {
+            name            "armRollerLeft"
+            translation     0.48 0.0755 0.040
+            rotation        0 0 1 0.20
+            contactMaterial "conveyorBelt"
+            device [
+              LinearMotor {
+                name        "armRollerLeftMotor"
+                maxForce    6.0
+                maxVelocity 2.0
+                minPosition -1e6
+                maxPosition 1e6
+                sound ""
+              }
+            ]
             children [
               Shape {
-                appearance PBRAppearance { baseColor 0.28 0.28 0.30 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.006 0.22 0.012 }
+                appearance PBRAppearance { baseColor 0.15 0.65 0.25 metalness 0.0 roughness 0.95 }
+                geometry Box { size 0.26 0.024 0.060 }
+              }
+              Transform {
+                translation 0.13 0 0
+                children [
+                  Shape {
+                    appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.8 }
+                    geometry Cylinder { radius 0.014 height 0.062 }
+                  }
+                ]
+              }
+              Transform {
+                translation -0.13 0 0
+                children [
+                  Shape {
+                    appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.8 }
+                    geometry Cylinder { radius 0.014 height 0.062 }
+                  }
+                ]
               }
             ]
-          }
-
-          # ==============================================================
-          # POWERED GATHERING ARMS (floor-level V rollers)
-          # ==============================================================
-          # Two driven rollers splayed into a V, wide at the front and narrowing
-          # to the mouth. Each lies along its arm (axis 0.894 +/-0.447 0, i.e.
-          # 26.6 deg off forward) at floor height (centre z=0.040, radius 0.032
-          # -> contacts a ball on its lower half). The controller spins them via
-          # set_door_rollers(): left at +speed, right at -speed, so BOTH inner
-          # surfaces travel inward-and-rearward and actively carry an off-centre
-          # ball toward the centreline and into the mouth, instead of a passive
-          # wall that only stopped the ball at an angle. Centre (0.56,+/-0.16,
-          # 0.04); inner ends ~(0.41,+/-0.08) just ahead of the bin mouth, outer
-          # ends ~(0.71,+/-0.24). Entirely forward of the bin (x>=0.41) and low
-          # (z<=0.072) so they clear the bin walls, the drive wheels and the mast
-          # lidars -- the mistakes that made the tall paddle-wheel shove the robot
-          # around and corrupt perception.
-          # left gathering arm
-          HingeJoint {
-            jointParameters HingeJointParameters {
-              axis   0.894 0.447 0
-              anchor 0.56 0.16 0.040
-            }
-            device [
-              RotationalMotor {
-                name        "armRollerLeftMotor"
-                maxTorque   2.0
-                maxVelocity 40
-                minPosition -1e6
-                maxPosition 1e6
-                sound ""
-              }
-            ]
-            endPoint DEF BODY_ARM_ROLLER_LEFT Solid {
-              name       "armRollerLeft"
-              translation 0.56 0.16 0.040
-              contactMaterial "roller"
-              children [
-                Transform {
-                  rotation -0.447 0.894 0 1.5708
-                  children [
-                    Shape {
-                      appearance PBRAppearance { baseColor 0.90 0.45 0.10 metalness 0.0 roughness 1.0 }
-                      geometry Cylinder { radius 0.032 height 0.34 }
-                    }
-                  ]
-                }
-              ]
-              boundingObject Transform {
-                rotation -0.447 0.894 0 1.5708
-                children [ Cylinder { radius 0.032 height 0.34 } ]
-              }
-              physics Physics {
-                density -1
-                mass 0.10
-                damping Damping { linear 0.05 angular 0.05 }
-              }
+            boundingObject Box { size 0.26 0.024 0.060 }
+            physics Physics {
+              density -1
+              mass 0.05
             }
           }
-          # right gathering arm
-          HingeJoint {
-            jointParameters HingeJointParameters {
-              axis   0.894 -0.447 0
-              anchor 0.56 -0.16 0.040
-            }
+          # ---- right side conveyor belt ----
+          DEF BODY_ARM_ROLLER_RIGHT Track {
+            name            "armRollerRight"
+            translation     0.48 -0.0755 0.040
+            rotation        0 0 1 -0.20
+            contactMaterial "conveyorBelt"
             device [
-              RotationalMotor {
+              LinearMotor {
                 name        "armRollerRightMotor"
-                maxTorque   2.0
-                maxVelocity 40
+                maxForce    6.0
+                maxVelocity 2.0
                 minPosition -1e6
                 maxPosition 1e6
                 sound ""
               }
             ]
-            endPoint DEF BODY_ARM_ROLLER_RIGHT Solid {
-              name       "armRollerRight"
-              translation 0.56 -0.16 0.040
-              contactMaterial "roller"
-              children [
-                Transform {
-                  rotation 0.447 0.894 0 1.5708
-                  children [
-                    Shape {
-                      appearance PBRAppearance { baseColor 0.90 0.45 0.10 metalness 0.0 roughness 1.0 }
-                      geometry Cylinder { radius 0.032 height 0.34 }
-                    }
-                  ]
-                }
-              ]
-              boundingObject Transform {
-                rotation 0.447 0.894 0 1.5708
-                children [ Cylinder { radius 0.032 height 0.34 } ]
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.15 0.65 0.25 metalness 0.0 roughness 0.95 }
+                geometry Box { size 0.26 0.024 0.060 }
               }
-              physics Physics {
-                density -1
-                mass 0.10
-                damping Damping { linear 0.05 angular 0.05 }
+              Transform {
+                translation 0.13 0 0
+                children [
+                  Shape {
+                    appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.8 }
+                    geometry Cylinder { radius 0.014 height 0.062 }
+                  }
+                ]
               }
+              Transform {
+                translation -0.13 0 0
+                children [
+                  Shape {
+                    appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.8 }
+                    geometry Cylinder { radius 0.014 height 0.062 }
+                  }
+                ]
+              }
+            ]
+            boundingObject Box { size 0.26 0.024 0.060 }
+            physics Physics {
+              density -1
+              mass 0.05
             }
           }
 
           # ==============================================================
-          # OVERHEAD ACTIVE ROTATING INTAKE PADDLE / ROLLER
+          # STAGE 2: 6-BLADE PLASTIC FAN WHEEL (throat scoop)
           # ==============================================================
+          # Hub at x = 0.33, z = 0.092; blade tip radius 0.052 -> lowest sweep
+          # z = 0.040; hub bottom 0.074 clears the 0.067 ball top (at 0.082 the hub
+          # bottom was 0.064 and wedged the ball, 0/1 in mech_test). 68 mm wide so it
+          # fits inside the 75 mm belt throat with clearance on both sides.
+          # Axis +y: a POSITIVE velocity moves the bottom of the wheel to -x
+          # (rearward), rolling the ball under the hub into the bin (verified:
+          # +24 captures, -24 repels). Nothing rises from the floor behind it:
+          # a ledge there pinned the ball (FINDINGS 6.6). Blades are in BOTH
+          # children and the bounding Group so the physics sees them.
           HingeJoint {
             jointParameters HingeJointParameters {
               axis   0 1 0
-              anchor 0.38 0 0.100
+              anchor 0.33 0 0.092
             }
             device [
               RotationalMotor {
                 name        "intakeRoller"
                 maxTorque   2.5
-                maxVelocity 50
+                maxVelocity 45
                 minPosition -1e6
                 maxPosition 1e6
                 sound ""
               }
             ]
             endPoint DEF BODY_INTAKE_ROLLER Solid {
-              name       "intakeRoller"
-              translation 0.38 0 0.100
+              name            "intakeRoller"
+              translation     0.33 0 0.092
               contactMaterial "roller"
               children [
-                # Main roller cylinder
                 Transform {
                   rotation 1 0 0 1.5708
                   children [
                     Shape {
-                      appearance PBRAppearance { baseColor 0.90 0.45 0.10 metalness 0.0 roughness 1.0 }
-                      geometry Cylinder { radius 0.032 height 0.210 }
+                      appearance PBRAppearance { baseColor 0.90 0.45 0.10 metalness 0.0 roughness 0.9 }
+                      geometry Cylinder { radius 0.018 height 0.068 }
                     }
-                    # 4 Radial paddle vanes
-                    Transform { rotation 0 0 1 0.0000 children [ Transform { translation 0.035 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.85 0.35 0.08 roughness 0.9 } geometry Box { size 0.008 0.012 0.210 } } ] } ] }
-                    Transform { rotation 0 0 1 1.5708 children [ Transform { translation 0.035 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.85 0.35 0.08 roughness 0.9 } geometry Box { size 0.008 0.012 0.210 } } ] } ] }
-                    Transform { rotation 0 0 1 3.1416 children [ Transform { translation 0.035 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.85 0.35 0.08 roughness 0.9 } geometry Box { size 0.008 0.012 0.210 } } ] } ] }
-                    Transform { rotation 0 0 1 4.7124 children [ Transform { translation 0.035 0 0 children [ Shape { appearance PBRAppearance { baseColor 0.85 0.35 0.08 roughness 0.9 } geometry Box { size 0.008 0.012 0.210 } } ] } ] }
                   ]
                 }
+                Transform {
+                  translation 0.034 0 0.0
+                  rotation 0 1 0 0.0
+                  children [ Shape { appearance PBRAppearance { baseColor 0.95 0.55 0.12 roughness 0.9 } geometry Box { size 0.036 0.068 0.005 } } ]
+                }
+                Transform {
+                  translation 0.017 0 0.0294
+                  rotation 0 1 0 -1.0472
+                  children [ Shape { appearance PBRAppearance { baseColor 0.95 0.55 0.12 roughness 0.9 } geometry Box { size 0.036 0.068 0.005 } } ]
+                }
+                Transform {
+                  translation -0.017 0 0.0294
+                  rotation 0 1 0 -2.0944
+                  children [ Shape { appearance PBRAppearance { baseColor 0.95 0.55 0.12 roughness 0.9 } geometry Box { size 0.036 0.068 0.005 } } ]
+                }
+                Transform {
+                  translation -0.034 0 0.0
+                  rotation 0 1 0 3.1416
+                  children [ Shape { appearance PBRAppearance { baseColor 0.95 0.55 0.12 roughness 0.9 } geometry Box { size 0.036 0.068 0.005 } } ]
+                }
+                Transform {
+                  translation -0.017 0 -0.0294
+                  rotation 0 1 0 2.0944
+                  children [ Shape { appearance PBRAppearance { baseColor 0.95 0.55 0.12 roughness 0.9 } geometry Box { size 0.036 0.068 0.005 } } ]
+                }
+                Transform {
+                  translation 0.017 0 -0.0294
+                  rotation 0 1 0 1.0472
+                  children [ Shape { appearance PBRAppearance { baseColor 0.95 0.55 0.12 roughness 0.9 } geometry Box { size 0.036 0.068 0.005 } } ]
+                }
               ]
-              boundingObject Transform {
-                rotation 1 0 0 1.5708
-                children [ Cylinder { radius 0.040 height 0.210 } ]
+              boundingObject Group {
+                children [
+                  Transform {
+                    rotation 1 0 0 1.5708
+                    children [ Cylinder { radius 0.018 height 0.068 } ]
+                  }
+                  Transform {
+                    translation 0.034 0 0.0
+                    rotation 0 1 0 0.0
+                    children [ Box { size 0.036 0.068 0.005 } ]
+                  }
+                  Transform {
+                    translation 0.017 0 0.0294
+                    rotation 0 1 0 -1.0472
+                    children [ Box { size 0.036 0.068 0.005 } ]
+                  }
+                  Transform {
+                    translation -0.017 0 0.0294
+                    rotation 0 1 0 -2.0944
+                    children [ Box { size 0.036 0.068 0.005 } ]
+                  }
+                  Transform {
+                    translation -0.034 0 0.0
+                    rotation 0 1 0 3.1416
+                    children [ Box { size 0.036 0.068 0.005 } ]
+                  }
+                  Transform {
+                    translation -0.017 0 -0.0294
+                    rotation 0 1 0 2.0944
+                    children [ Box { size 0.036 0.068 0.005 } ]
+                  }
+                  Transform {
+                    translation 0.017 0 -0.0294
+                    rotation 0 1 0 1.0472
+                    children [ Box { size 0.036 0.068 0.005 } ]
+                  }
+                ]
               }
               physics Physics {
                 density -1
-                mass 0.12
+                mass 0.06
                 damping Damping { linear 0.05 angular 0.05 }
               }
             }
@@ -423,38 +482,48 @@ PROTO TennisCollectorRobot [
             }
           }
 
-          # ---- front ball casters (low-friction spheres) ----
-          # Replaced the two fixed cylinder skids. A cylinder skid only rolls
-          # fore/aft, so it RESISTS yaw and presents a flat edge a ball wedges
-          # against (the ESCAPE-pin cause). A low-friction sphere slides equally
-          # in every direction -- the robot pivots freely -- and a ball rolls
-          # around it instead of jamming. Radius 0.03, bottom on the floor,
-          # contactMaterial "caster" (very low friction, set in the worlds).
-          DEF BODY_SKID_LEFT Solid {
-            name       "skidLeft"
-            translation 0.15  0.13 0.03
-            contactMaterial "caster"
-            children [
-              Shape {
-                appearance PBRAppearance { baseColor 0.35 0.35 0.38 metalness 0.6 roughness 0.3 }
-                geometry Sphere { radius 0.03 }
-              }
-            ]
-            boundingObject Sphere { radius 0.03 }
-            physics Physics { density -1 mass 0.4 }
+          # ---- front ball casters, each on a passive HingeJoint ----
+          # They were bare Solids with Physics and no joint, which FINDINGS 5.1
+          # says become independent bodies. The joint keeps them on the chassis;
+          # contactMaterial "caster" (0.03 friction) still lets them slide
+          # sideways, so pivoting stays free (Phase 8).
+          HingeJoint {
+            jointParameters HingeJointParameters {
+              axis   0 1 0
+              anchor 0.15  0.13 0.03
+            }
+            endPoint DEF BODY_SKID_LEFT Solid {
+              name            "skidLeft"
+              translation     0.15  0.13 0.03
+              contactMaterial "caster"
+              children [
+                Shape {
+                  appearance PBRAppearance { baseColor 0.35 0.35 0.38 metalness 0.6 roughness 0.3 }
+                  geometry Sphere { radius 0.03 }
+                }
+              ]
+              boundingObject Sphere { radius 0.03 }
+              physics Physics { density -1 mass 0.4 }
+            }
           }
-          DEF BODY_SKID_RIGHT Solid {
-            name       "skidRight"
-            translation 0.15 -0.13 0.03
-            contactMaterial "caster"
-            children [
-              Shape {
-                appearance PBRAppearance { baseColor 0.35 0.35 0.38 metalness 0.6 roughness 0.3 }
-                geometry Sphere { radius 0.03 }
-              }
-            ]
-            boundingObject Sphere { radius 0.03 }
-            physics Physics { density -1 mass 0.4 }
+          HingeJoint {
+            jointParameters HingeJointParameters {
+              axis   0 1 0
+              anchor 0.15 -0.13 0.03
+            }
+            endPoint DEF BODY_SKID_RIGHT Solid {
+              name            "skidRight"
+              translation     0.15 -0.13 0.03
+              contactMaterial "caster"
+              children [
+                Shape {
+                  appearance PBRAppearance { baseColor 0.35 0.35 0.38 metalness 0.6 roughness 0.3 }
+                  geometry Sphere { radius 0.03 }
+                }
+              ]
+              boundingObject Sphere { radius 0.03 }
+              physics Physics { density -1 mass 0.4 }
+            }
           }
 
           Lidar {
@@ -489,6 +558,21 @@ PROTO TennisCollectorRobot [
             noise               0.01
             defaultFrequency    25
           }
+          Lidar {
+            name "bumperLidar"
+            translation 0.50 0 0.30
+            fieldOfView         2.8
+            horizontalResolution 96
+            numberOfLayers      1
+            verticalFieldOfView 0.1
+            minRange            0.05
+            near                0.02
+            maxRange            1.20
+            type                "fixed"
+            projection          "cylindrical"
+            noise               0.005
+            defaultFrequency    25
+          }
 
           GPS {
             name "gps"
@@ -511,35 +595,29 @@ PROTO TennisCollectorRobot [
               children [ Box { size 0.34 0.26 0.02 } ]
             }
             Transform {
-              translation 0.22  0.120 0.075
-              children [ Box { size 0.34 0.014 0.14 } ]
+              translation 0.20  0.120 0.075
+              children [ Box { size 0.30 0.014 0.14 } ]
             }
             Transform {
-              translation 0.22 -0.120 0.075
-              children [ Box { size 0.34 0.014 0.14 } ]
+              translation 0.20 -0.120 0.075
+              children [ Box { size 0.30 0.014 0.14 } ]
             }
             Transform {
               translation 0.057 0 0.075
               children [ Box { size 0.014 0.24 0.14 } ]
             }
             Transform {
-              translation 0.17 0 0.150
-              children [ Box { size 0.22 0.24 0.012 } ]
+              translation 0.16 0 0.150
+              children [ Box { size 0.20 0.24 0.012 } ]
             }
             Transform {
-              translation 0.38 0 0.170
-              children [ Box { size 0.20 0.24 0.010 } ]
+              translation 0.34 0 0.165
+              children [ Box { size 0.18 0.24 0.010 } ]
             }
-            # Bin floor pit and drop-step retention ledge
-            Transform {
-              translation 0.19 0 0.002
-              children [ Box { size 0.26 0.22 0.003 } ]
-            }
-            Transform {
-              translation 0.32 0 0.008
-              children [ Box { size 0.006 0.22 0.012 } ]
-            }
-            # (the gathering arms are separate jointed Solids with their own
+            # (no bin floor or ledge in the collision: the chassis rides ~2 deg
+            # nose-up, which lifts any edge at x = 0.30 to ball-equator height
+            # and pins the ball under the fan; balls rest on the court instead)
+            # (the conveyor belts are separate jointed Solids with their own
             # collision, so they are NOT part of the chassis bounding object)
             Transform {
               translation -0.28 0 0.30

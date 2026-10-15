@@ -91,14 +91,18 @@ WHEEL_ACCEL = 1.2
 SETTLE_TIME = 0.4            # s before the first drive command
 
 # intake
-# The front door is flanked by two powered vertical rollers, one at each side
-# of the entrance. Each roller's door-facing surface sweeps backwards (-x), so
-# a ball that reaches the door is drawn in behind the rollers; it cannot roll
-# back out because the surfaces keep pushing it in, and new balls shove the
-# earlier ones deeper into the bin. Nothing has to be wedged under the ball.
-DOOR_ROLLER_SPEED = 16.0     # rad/s magnitude; signs set in set_door_rollers()
+# Two stages. The mouth is a V of two side conveyor belts (Track nodes driven
+# by LinearMotors, so the speeds are in m/s) converging to a 75 mm throat;
+# their inner faces sweep rearward and carry the ball in. Behind the throat a
+# 6-blade fan wheel (axis +y, so positive speed sweeps its bottom rearward)
+# scoops the ball over the 12 mm ledge into the bin.
+# The belts must outrun the robot's approach (0.30-0.69 m/s, FINDINGS 5.15) or
+# they act as a wall and bulldoze the ball: v_belt >= 1.5 x v_robot.
+CONVEYOR_BELT_SPEED = 0.80   # m/s, inward; signs set in set_door_rollers()
+FAN_BLADE_SPEED = 24.0        # rad/s, + sweeps the bottom blades rearward
+DOOR_ROLLER_SPEED = CONVEYOR_BELT_SPEED
 COLLECT_TIMEOUT = 6.0        # s
-COLLECT_ABORT_X = 0.20       # m: closer than this the ball is under the body
+COLLECT_ABORT_X = 0.18       # m: closer than this the ball is under the body
 
 # Overrun guard: a 67 mm ball against a 90 mm ride height lifts the wheels.
 SEEK_BRAKE_DISTANCE = 0.80
@@ -211,9 +215,9 @@ NO_TRANSIT_TIME = 8.0         # s with zero state transitions -> force a recover
 # hopper interior, robot frame (x forward, y left, z up) - the front bin.
 # A ball is "collected" once its centre is inside this box, i.e. behind the
 # door rollers.
-HOPPER_X = (0.04, 0.40)
-HOPPER_Y = (-0.10, 0.10)
-HOPPER_Z = (0.008, 0.145)
+HOPPER_X = (0.04, 0.31)
+HOPPER_Y = (-0.11, 0.11)
+HOPPER_Z = (0.002, 0.150)
 # How many balls the bin can usefully hold before it must be unloaded.
 #
 # This was 4, on the reasoning that the bin is "0.20 m across and a ball is
@@ -262,6 +266,7 @@ BAG_CAPACITY = 1
 FAN_DEFS = (
     ('lidarLeft', -0.28, 0.17, 0.85, 2.6, 128, 8.0),
     ('lidarRight', -0.28, -0.17, -0.85, 2.6, 128, 8.0),
+    ('bumperLidar', 0.50, 0.0, 0.0, 2.8, 96, 1.2),
 )
 LIDAR_MIN_RANGE = 0.05
 
@@ -382,8 +387,9 @@ NOMINAL_PARTS = {
     'BODY_WHEEL_RIGHT': (-0.10, -0.185, 0.09),
     'BODY_SKID_LEFT': (0.15, 0.13, 0.03),
     'BODY_SKID_RIGHT': (0.15, -0.13, 0.03),
-    'BODY_ARM_ROLLER_LEFT': (0.56, 0.16, 0.040),
-    'BODY_ARM_ROLLER_RIGHT': (0.56, -0.16, 0.040),
+    'BODY_ARM_ROLLER_LEFT': (0.48, 0.0755, 0.040),
+    'BODY_ARM_ROLLER_RIGHT': (0.48, -0.0755, 0.040),
+    'BODY_INTAKE_ROLLER': (0.33, 0.0, 0.092),
 }
 BODY_PARTS = tuple(NOMINAL_PARTS.keys())
 
@@ -658,6 +664,8 @@ class TennisCollector(Supervisor):
         self.idle_pivot_left = 0.0
         self.idle_pivot_dir = 1.0
         self.dump_exit_left = 0.0
+        self.dump_timer = 0.0
+        self.dump_announced = False
         self.last_state = 'SEEK'
         self.no_transit_time = 0.0
         self.transits = 0
@@ -1413,22 +1421,21 @@ class TennisCollector(Supervisor):
         self.exp_pending = sample
 
     def set_roller(self, speed):
-        """Legacy hook retained for a future powered intake; no-op now."""
+        """Spin the 6-blade fan wheel; positive sweeps the ball rearward."""
         if self.roller is None:
             return
         self.roller.setVelocity(speed)
         self.roller_cmd = speed
 
     def set_door_rollers(self, speed):
-        """Spin the two horizontal roller arms so they carry balls inward.
+        """Drive the two side conveyor belts; positive speed (m/s) is inward.
 
-        The rollers form a V: the left axis points forward-left, the right
-        forward-right. Opposing signs make both inner surfaces travel the same
-        way (toward the door), which draws a ball caught between them in
-        through the door.
+        Each Track's local +x points forward toward the mouth, so BOTH
+        LinearMotors take the same negative velocity to move their inner faces
+        rearward into the fan.
         """
         if self.arm_roller_left is not None:
-            self.arm_roller_left.setVelocity(speed)
+            self.arm_roller_left.setVelocity(-speed)
         if self.arm_roller_right is not None:
             self.arm_roller_right.setVelocity(-speed)
 
@@ -2009,7 +2016,7 @@ class TennisCollector(Supervisor):
             self.state = 'SEEK'
             return
 
-        lx, ly, _ = self.to_robot(*self.target['pos'])
+        lx, ly, lz = self.to_robot(*self.target['pos'])
 
         # Re-align only if the ball is still well ahead AND badly off-centre.
         # The old test (abs(ly) > 0.035) bounced to ALIGN at an offset ALIGN
@@ -2025,8 +2032,9 @@ class TennisCollector(Supervisor):
             self.state_time = 0.0
             return
 
-        # spin the door rollers so they draw the ball inward
-        self.set_door_rollers(DOOR_ROLLER_SPEED)
+        # spin both the side belts and the fan so they draw the ball inward
+        self.set_door_rollers(CONVEYOR_BELT_SPEED)
+        self.set_roller(FAN_BLADE_SPEED)
 
         # drive up to the door, then keep a gentle push so the spinning rollers
         # stay engaged with the ball while they draw it through. Do not ease
@@ -2044,8 +2052,8 @@ class TennisCollector(Supervisor):
                                0.0, False)
 
         if os.environ.get('TENNIS_DEBUG_COLLECT'):
-            print('  collect: ball x=%+.3f y=%+.3f  rollerL=%.1f rollerR=%.1f'
-                  % (lx, ly, DOOR_ROLLER_SPEED, -DOOR_ROLLER_SPEED))
+            print('  collect: ball x=%+.3f y=%+.3f z=%.3f  belts=%.2f m/s fan=%.1f'
+                  % (lx, ly, lz, CONVEYOR_BELT_SPEED, FAN_BLADE_SPEED))
 
         # the ball can only get stuck if it slips underneath the deck
         if lx < COLLECT_ABORT_X:
@@ -2065,6 +2073,7 @@ class TennisCollector(Supervisor):
                    % (reason, self.pickup_attempts, lx, ly,
                       math.degrees(self.tilt), self.bag))
         self.set_door_rollers(0.0)
+        self.set_roller(0.0)
         self.jam_time = 0.0
         self.last_jam_x = None
         if self.target is not None:
@@ -2312,11 +2321,11 @@ class TennisCollector(Supervisor):
         # Open unload door lid motor and reverse the whole intake to eject
         if self.gate is not None:
             self.gate.setPosition(1.45)
-        self.set_door_rollers(-20.0)
-        # The paddle reverses with them. run() zeroes it every step in DUMP
+        self.set_door_rollers(-CONVEYOR_BELT_SPEED)
+        # The fan reverses with them. run() zeroes it every step in DUMP
         # (spin is False for DUMP), so it has to be re-asserted here to survive
         # past the first step; without this it sits still and pins the ball.
-        self.set_roller(-25.0)
+        self.set_roller(-20.0)
 
         # Allow 1.5 seconds for delivery procedure motion.
         #
@@ -2356,7 +2365,9 @@ class TennisCollector(Supervisor):
             side = DUMP_BALL_DEPTH + 0.16 * (i % 2)
             gx = self.drop_x + side * math.cos(away) + 0.10 * (i // 2) * math.cos(away + 1.57)
             gy = self.drop_y + side * math.sin(away) + 0.10 * (i // 2) * math.sin(away + 1.57)
-            ball['node'].setPose([gx, gy, 0.0335, 0, 0, 1, 0])
+            # Node has no setPose(); set the field and clear the ball's motion
+            ball['node'].getField('translation').setSFVec3f([gx, gy, 0.0335])
+            ball['node'].resetPhysics()
             ball['in_hopper'] = False
             ball['held'] = 0
         self.carrying = 0
@@ -2778,9 +2789,9 @@ class TennisCollector(Supervisor):
                 self.set_roller(0.0)
                 self.drive(-DUMP_EXIT_SPEED, 0.0)
                 if self.dump_exit_left <= 0.0:
-        self.dump_exit_left = 0.0
-        self.dump_timer = 0.0
-        self.dump_announced = False
+                    self.dump_exit_left = 0.0
+                    self.dump_timer = 0.0
+                    self.dump_announced = False
                     self.event('clear of the pad - resuming')
             else:
                 # Spin the roller arms inward while aligning (to feed a ball
@@ -2796,7 +2807,7 @@ class TennisCollector(Supervisor):
                     # intake still.
                     spin = False
                 self.set_door_rollers(DOOR_ROLLER_SPEED if spin else 0.0)
-                self.set_roller(25.0 if spin else 0.0)
+                self.set_roller(FAN_BLADE_SPEED if spin else 0.0)
                 if self.state == 'SEEK':
                     self.run_seek()
                 elif self.state == 'ALIGN':
