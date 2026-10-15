@@ -66,31 +66,31 @@ PROTO TennisCollectorRobot [
 
           # bin left wall
           Transform {
-            translation 0.20  0.120 0.075
+            translation 0.20  0.120 0.0825
             children [
               Shape {
                 appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.30 0.014 0.14 }
+                geometry Box { size 0.30 0.014 0.125 }
               }
             ]
           }
           # bin right wall
           Transform {
-            translation 0.20 -0.120 0.075
+            translation 0.20 -0.120 0.0825
             children [
               Shape {
                 appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.30 0.014 0.14 }
+                geometry Box { size 0.30 0.014 0.125 }
               }
             ]
           }
           # bin back wall
           Transform {
-            translation 0.057 0 0.075
+            translation 0.057 0 0.0825
             children [
               Shape {
                 appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.014 0.24 0.14 }
+                geometry Box { size 0.014 0.24 0.125 }
               }
             ]
           }
@@ -132,7 +132,8 @@ PROTO TennisCollectorRobot [
           # ==============================================================
           # STAGE 1: DUAL SIDE-PINCHING CONVEYOR BELTS (Webots Track nodes)
           # ==============================================================
-          # Each belt is a 0.26 x 0.024 x 0.060 box angled 0.20 rad inward.
+          # Each belt is a 0.26 x 0.024 x 0.060 box angled 0.20 rad inward,
+          # bottom at z = 0.015 so it clears a raised pad edge.
           # Centres at y = +/-0.0755 give an inner gap of ~0.178 m at the
           # mouth (x ~ 0.61) and ~0.075 m at the throat (x ~ 0.35), 8 mm wider
           # than the 0.067 m ball. Track moves its whole contact surface along
@@ -142,7 +143,7 @@ PROTO TennisCollectorRobot [
           # ---- left side conveyor belt ----
           DEF BODY_ARM_ROLLER_LEFT Track {
             name            "armRollerLeft"
-            translation     0.48 0.0755 0.040
+            translation     0.48 0.0755 0.045
             rotation        0 0 1 0.20
             contactMaterial "conveyorBelt"
             device [
@@ -188,7 +189,7 @@ PROTO TennisCollectorRobot [
           # ---- right side conveyor belt ----
           DEF BODY_ARM_ROLLER_RIGHT Track {
             name            "armRollerRight"
-            translation     0.48 -0.0755 0.040
+            translation     0.48 -0.0755 0.045
             rotation        0 0 1 -0.20
             contactMaterial "conveyorBelt"
             device [
@@ -595,16 +596,16 @@ PROTO TennisCollectorRobot [
               children [ Box { size 0.34 0.26 0.02 } ]
             }
             Transform {
-              translation 0.20  0.120 0.075
-              children [ Box { size 0.30 0.014 0.14 } ]
+              translation 0.20  0.120 0.0825
+              children [ Box { size 0.30 0.014 0.125 } ]
             }
             Transform {
-              translation 0.20 -0.120 0.075
-              children [ Box { size 0.30 0.014 0.14 } ]
+              translation 0.20 -0.120 0.0825
+              children [ Box { size 0.30 0.014 0.125 } ]
             }
             Transform {
-              translation 0.057 0 0.075
-              children [ Box { size 0.014 0.24 0.14 } ]
+              translation 0.057 0 0.0825
+              children [ Box { size 0.014 0.24 0.125 } ]
             }
             Transform {
               translation 0.16 0 0.150

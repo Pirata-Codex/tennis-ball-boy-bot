@@ -2389,3 +2389,25 @@ bin past the wall line (y = 0.113). Suspected wedge, not yet confirmed.
 Also seen: the first dump reported `0 total delivered` although the ball was
 placed on the pad.
 
+
+**Follow-up: the "wedge" was the drop pad, not the caster.** User observation
+on a rendered run: the pad has a height that lifts the wheels off. Confirmed in
+`tennis_court_flap.wbt`: the pad was a 10 mm box sitting *on* the floor (its
+comment claimed "adds no step"), and the robot froze at y = 1.05 — exactly the
+pad's edge. The bin walls hung only 5 mm above the ground and the belts 10 mm,
+so the body caught the edge and the wheels lost load. The training worlds
+already sank the pad to z = -0.005; only this one did not. Fixes:
+
+* pad sunk to z = -0.004 (top 1 mm proud);
+* bin walls now start at z = 0.020 (still under the 0.0335 ball equator),
+  belts at z = 0.015 — ground clearance for uneven surfaces;
+* `caster`↔`dropPad` friction (0.03) added; it was missing, so the casters
+  gripped on the pad at default friction.
+
+| world | before | after |
+| --- | --- | --- |
+| `mech_test` | 1/1 | 1/1 |
+| `mech_test_offset` | 3/3 | 2/3 (= Phase 8) |
+| `tennis_court_flap` 150 s, rendered | 2/10 | **8/10** (9th in the bin at 150 s; best so far, 5.51 was 4/10) |
+
+Single runs; the offset drop may be variance and needs repeats.

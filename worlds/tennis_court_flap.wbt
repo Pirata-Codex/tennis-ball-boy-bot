@@ -131,6 +131,12 @@ WorldInfo {
     }
     ContactProperties {
       material1 "caster"
+      material2 "dropPad"
+      coulombFriction [ 0.03 0.03 0.03 0.03 ]
+      rollingFriction 0.0 0.0 0.0
+    }
+    ContactProperties {
+      material1 "caster"
       material2 "hardFloor"
       coulombFriction [ 0.03 0.03 0.03 0.03 ]
       rollingFriction 0.0 0.0 0.0
@@ -188,11 +194,11 @@ CourtMarkings {
 # ================= DROP PAD =================
 # The physical low-traction surface the balls are unloaded onto. CourtMarkings
 # only paints the zone; this is the collidable, friction-tuned pad that makes
-# a delivered ball stay delivered. It is a thin box sitting on the floor, so it
-# adds no step the wheels have to climb.
+# a delivered ball stay delivered. It is sunk into the floor (top 1 mm proud):
+# sitting ON the floor it was a 10 mm square edge that high-centred the robot.
 Solid {
   name "dropPad"
-  translation -4.9 1.8 0.005
+  translation -4.9 1.8 -0.004
   contactMaterial "dropPad"
   children [
     Shape {

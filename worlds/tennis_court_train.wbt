@@ -143,6 +143,12 @@ WorldInfo {
     }
     ContactProperties {
       material1 "caster"
+      material2 "dropPad"
+      coulombFriction [ 0.03 0.03 0.03 0.03 ]
+      rollingFriction 0.0 0.0 0.0
+    }
+    ContactProperties {
+      material1 "caster"
       material2 "hardFloor"
       coulombFriction [ 0.03 0.03 0.03 0.03 ]
       rollingFriction 0.0 0.0 0.0
