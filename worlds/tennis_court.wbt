@@ -11,7 +11,7 @@
 #   * The net on the centre line is a REAL collidable object, so the two mast
 #     lidars have a genuine obstacle to keep the robot clear of.
 #   * The robot is scoped to the left half for this prototype, because the net
-#     blocks the middle. Every ball and the drop zone are on that side. The
+#     blocks the middle. Every ball is on that side. The
 #     usable area is handed to the controller with --bounds.
 #
 # The same scene on a dirt/clay surface is worlds/tennis_court_dirt.wbt. Only
@@ -165,7 +165,6 @@ Solid {
 }
 
 CourtMarkings {
-  dropZoneCenter -4.9 1.8 0
 }
 
 # ================= PERIMETER FENCE =================
@@ -291,7 +290,7 @@ Solid {
 }
 
 # ================= TENNIS BALLS =================
-# All on the left half, clear of the drop zone.
+# All on the left half.
 DEF BALL0 TennisBall { name "ball0" translation -4.7  0.50 0.0335 }
 DEF BALL1 TennisBall { name "ball1" translation -4.3 -1.90 0.0335 }
 DEF BALL2 TennisBall { name "ball2" translation -3.5  0.30 0.0335 }
@@ -307,5 +306,5 @@ DEF BALL9 TennisBall { name "ball9" translation -5.4 -0.80 0.0335 }
 DEF ROBOT TennisCollectorRobot {
   translation -5.3 -2.2 0
   controller  "tennis_collector"
-  controllerArgs [ "--dropZone -4.9 1.8 --bounds -5.75 -0.70 -2.70 2.70" ]
+  controllerArgs [ "--bounds -5.75 -0.70 -2.70 2.70" ]
 }

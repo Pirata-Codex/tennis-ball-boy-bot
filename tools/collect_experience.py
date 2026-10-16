@@ -63,8 +63,8 @@ def write_world(seed, explore, runtime):
         src = fh.read()
     out = re.sub(
         r'controllerArgs \[ "[^"]*" \]',
-        'controllerArgs [ "--dropZone -4.9 1.8 '
-        '--bounds -5.75 -0.70 -2.70 2.70 --runtime %g --seed %d '
+        'controllerArgs [ "--bounds -5.75 -0.70 -2.70 2.70 '
+        '--runtime %g --seed %d '
         '--explore %g" ]' % (runtime, seed, explore),
         src)
     if out == src:

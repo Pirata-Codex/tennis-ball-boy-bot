@@ -77,6 +77,6 @@ Solid {
 DEF ROBOT TennisCollectorRobot {
   translation 0 0 0
   controller "tennis_collector"
-  controllerArgs [ "--dropZone 3 0 --bounds -14 14 -11 11 --runtime 60" ]
+  controllerArgs [ "--bounds -14 14 -11 11 --runtime 60" ]
 }
 DEF BALL0 TennisBall { name "ball0" translation 1.10 0 0.0335 }

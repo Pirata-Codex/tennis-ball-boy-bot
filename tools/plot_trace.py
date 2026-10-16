@@ -3,7 +3,8 @@
 The controller writes one JSONL sample every `TRACE_PERIOD` seconds to
 `logs/trace_<world>.jsonl`:
 
-    {"meta":true,"bounds":[xmin,xmax,ymin,ymax],"drop":[x,y],"balls":N}
+    {"meta":true,"bounds":[xmin,xmax,ymin,ymax],"balls":N}
+    (traces from before the keep-in-bin goal also carry "drop":[x,y])
     {"t":..,"s":"SEEK","x":..,"y":..,"h":..,"bag":..,"dep":..,
      "b":[[x,y,inside], ...]}
 
@@ -76,7 +77,7 @@ def main():
 
     meta, rows = load(trace)
     xmin, xmax, ymin, ymax = meta['bounds']
-    dx, dy = meta['drop']
+    drop = meta.get('drop')   # only traces from before the keep-in-bin goal
     nballs = meta.get('balls', max(len(r['b']) for r in rows))
     xs = np.array([r['x'] for r in rows])
     ys = np.array([r['y'] for r in rows])
@@ -85,7 +86,7 @@ def main():
     ts = np.array([r['t'] for r in rows])
 
     fig, ax = plt.subplots(figsize=(11, 8))
-    ax.set_title('tennis_bot run: %s\n%d balls, %.1f s, delivered %d'
+    ax.set_title('tennis_bot run: %s\n%d balls, %.1f s, in the bin %d'
                  % (os.path.basename(trace), nballs, ts[-1], rows[-1]['dep']))
 
     # court and net (the net is at x = 0, usually just outside the robot limits)
@@ -93,10 +94,12 @@ def main():
                            fill=False, ec='#333333', lw=1.5))
     ax.plot([0, 0], [ymin, ymax], color='#888888', lw=2.5, ls='-')
     ax.text(0.06, ymax - 0.20, 'net', color='#666666', fontsize=9)
-    ax.add_patch(Rectangle((dx - 0.85, dy - 0.85), 1.7, 1.7, fill=True,
-                           fc='#d9f0d3', ec='#2ca02c', lw=1.2, alpha=0.7))
-    ax.text(dx, dy, 'drop', color='#2ca02c', fontsize=9, ha='center',
-            va='center')
+    if drop is not None:
+        dx, dy = drop
+        ax.add_patch(Rectangle((dx - 0.85, dy - 0.85), 1.7, 1.7, fill=True,
+                               fc='#d9f0d3', ec='#2ca02c', lw=1.2, alpha=0.7))
+        ax.text(dx, dy, 'drop', color='#2ca02c', fontsize=9, ha='center',
+                va='center')
 
     # ball tracks: start, track, end (collected balls highlighted)
     for bi in range(nballs):

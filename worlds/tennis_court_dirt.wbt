@@ -103,6 +103,14 @@ WorldInfo {
       coulombFriction [ 0.30 0.30 0.30 0.30 ]
       rollingFriction 0.020 0.020 0.010
     }
+    # casters must slide on the clay too: with only the hardFloor entry they
+    # got default friction here and the robot could not turn (0/10, FINDINGS 6.9)
+    ContactProperties {
+      material1 "caster"
+      material2 "dirtFloor"
+      coulombFriction [ 0.03 0.03 0.03 0.03 ]
+      rollingFriction 0.0 0.0 0.0
+    }
     ContactProperties {
       material1 "caster"
       material2 "hardFloor"
@@ -163,7 +171,6 @@ Solid {
 }
 
 CourtMarkings {
-  dropZoneCenter -4.9 1.8 0
   lineColor      0.92 0.90 0.84
 }
 
@@ -304,5 +311,5 @@ DEF BALL9 TennisBall { name "ball9" translation -5.4 -0.80 0.0335 linearDamping 
 DEF ROBOT TennisCollectorRobot {
   translation -5.3 -2.2 0
   controller  "tennis_collector"
-  controllerArgs [ "--dropZone -4.9 1.8 --bounds -5.75 -0.70 -2.70 2.70" ]
+  controllerArgs [ "--bounds -5.75 -0.70 -2.70 2.70" ]
 }

@@ -5,7 +5,7 @@
 Writes, into <outdir>:
 
     <label>.png       the court map (robot path, state colouring, ball tracks)
-    <label>.csv       one row per trace sample: t, state, pose, bag, delivered
+    <label>.csv       one row per trace sample: t, state, pose, bag, delivered (= balls in the bin since the keep-in-bin goal)
     <label>_summary.csv  one row of run-level metrics
 
 The per-sample CSV is what makes a *series* of runs comparable, which the PNG is
@@ -214,7 +214,7 @@ def write_summary_csv(path, row):
 
 def write_plot(path, rows, meta, label):
     xmin, xmax, ymin, ymax = meta['bounds']
-    dx, dy = meta['drop']
+    drop = meta.get('drop')   # only traces from before the keep-in-bin goal
     nballs = meta.get('balls', max(len(r.get('b') or []) for r in rows))
     xs = np.array([r['x'] for r in rows])
     ys = np.array([r['y'] for r in rows])
@@ -238,10 +238,12 @@ def write_plot(path, rows, meta, label):
                            fill=False, ec='#333333', lw=1.5))
     ax.plot([0, 0], [ymin, ymax], color='#888888', lw=2.5)
     ax.text(0.06, ymax - 0.20, 'net', color='#666666', fontsize=9)
-    ax.add_patch(Rectangle((dx - 0.85, dy - 0.85), 1.7, 1.7, facecolor='#d9f0d3',
-                           ec='#2ca02c', lw=1.2, alpha=0.7))
-    ax.text(dx, dy, 'drop', color='#2ca02c', fontsize=9, ha='center',
-            va='center')
+    if drop is not None:
+        dx, dy = drop
+        ax.add_patch(Rectangle((dx - 0.85, dy - 0.85), 1.7, 1.7, facecolor='#d9f0d3',
+                               ec='#2ca02c', lw=1.2, alpha=0.7))
+        ax.text(dx, dy, 'drop', color='#2ca02c', fontsize=9, ha='center',
+                va='center')
 
     first = {}
     last = {}
@@ -329,7 +331,7 @@ def write_plot(path, rows, meta, label):
     axc.tick_params(axis='y', labelcolor='#d62728', labelsize=8)
     axb.set_title('speed and hopper load', fontsize=10)
 
-    fig.suptitle('tennis_bot %s: %d balls, %.1f s, delivered %d, '
+    fig.suptitle('tennis_bot %s: %d balls, %.1f s, in the bin %d, '
                  'max bag %d, %.1f m travelled'
                  % (label, nballs, ts[-1] - ts[0], rows[-1].get('dep', 0),
                     int(bags.max()) if len(bags) else 0, distance_m(rows)),
@@ -372,7 +374,7 @@ def main():
     print('wrote %s' % png_path)
     print('wrote %s' % csv_path)
     print('wrote %s' % sum_path)
-    print('  %.1f s, %.1f m, delivered %d, max bag %d, %d state transits'
+    print('  %.1f s, %.1f m, in the bin %d, max bag %d, %d state transits'
           % (float(row['duration_s']), float(row['distance_m']),
              int(row['delivered']), int(row['max_bag']),
              int(row['state_transits'])))

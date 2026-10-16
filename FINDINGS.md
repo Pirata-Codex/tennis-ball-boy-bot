@@ -2481,3 +2481,34 @@ attempt (climb z 0.032 -> 0.146 in <1 s); `mech_test_offset` 3/3 captured.
 0 `error` lines, balls discovered progressively (4 in the first 7 s, the last
 at t = 124 s), court coverage 100 %. For comparison the delivery robot with
 perfect ball knowledge reached 8/10 (6.6).
+
+### 6.9 Drop zone removed
+
+The keep-in-bin goal made the drop-off dead code, so it is gone: `TO_DROP`,
+`DUMP` and the dump-exit reverse, every `DROP_*`/`DUMP_*` constant, the unload
+gate, `in_drop_zone()`, the drop pad Solid and its four `dropPad` contact
+entries in every world, the painted zone in `CourtMarkings.proto`
+(`dropZoneCenter` field removed), and `--dropZone` from the worlds and
+`tools/collect_experience.py` (the controller still accepts and ignores it, so
+an old world file loads). Traces no longer carry `"drop"`; `plot_trace.py` and
+`iteration_report.py` draw it only for old traces. The CSV column keeps the name
+`delivered` for `compare_iterations.py`, but it now counts balls in the bin.
+`policy.py` keeps `MODE_DROP` as a constant; the controller never produces it.
+
+Found while validating: the dirt world defined `caster` friction only against
+`hardFloor`, so on `dirtFloor` the casters got default friction, could not
+slide when turning, and the robot made **0/10** in 600 s. Added
+`caster`↔`dirtFloor` 0.03.
+
+Every world loads rendered with 0 `error` lines. Single runs,
+`TENNIS_NO_POLICY=1`, balls in the bin:
+
+| world | result |
+| --- | --- |
+| `mech_test` | 1/1 |
+| `mech_test_offset` (60 s) | 2/3 |
+| `tennis_court` | 9/10 (DONE at 115 s) |
+| `tennis_court_flap` (150 s) | 8/10 (9/10 in 6.8) |
+| `tennis_court_dirt` | **10/10**, DONE at 276 s, court covered 100 % |
+| `tennis_court_train` (150 s) | 4/10 |
+| `tennis_court_train_run` (150 s) | 8/10 |
