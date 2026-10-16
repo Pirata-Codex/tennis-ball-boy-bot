@@ -266,7 +266,27 @@ FLOOR_BALL_Z = 0.06
 # balls the robot demonstrably CAN collect into delivered balls, which is the
 # metric being asked for. The drop zone is a fixed point near the back wall, so
 # the extra round trips cost distance, not feasibility.
-BAG_CAPACITY = 1
+BAG_CAPACITY = 14
+
+# ---- goal: keep the balls in the robot's raised bin -----------------------
+# The bin holds ~16 in one layer. There is no drop-off any more: after a
+# capture the robot goes straight back to SEEK, and the run is DONE when the
+# bin is full or the whole court has been looked at and no remembered ball is
+# left (FINDINGS 6.8).
+
+# ---- ball sensing and memory ------------------------------------------------
+# The robot no longer knows every ball from the start. A ball is SEEN when it
+# is inside a forward sensing cone (stand-in for a camera, see FINDINGS 6.8);
+# the observed position carries noise. Sightings are merged into a memory that
+# navigation uses; the supervisor's ground truth is only used to score.
+SENSE_RANGE = 2.5             # m
+SENSE_MIN_RANGE = 0.25        # m: closer than this the intake hides the ball
+SENSE_HALF_FOV = 1.05         # rad (~60 deg either side)
+SENSE_NOISE = 0.04            # m, std-dev of each observed coordinate
+SENSE_PERIOD = 0.25           # s between sensing updates
+MEMORY_MATCH = 0.30           # m: a sighting this close updates an entry
+MEMORY_MISSES = 4             # in view but unseen this often -> forget it
+MAP_SAVE_PERIOD = 5.0         # s between map snapshots on disk
 
 # ---- perception geometry -------------------------------------------------
 # (device name, mount x, mount y, mount yaw, fov, resolution, max range)
@@ -621,6 +641,13 @@ class TennisCollector(Supervisor):
         self.escape_ball = None
         self.escape_until = 0.0
         self.unreachable_balls = set()
+        # ball memory (navigation) and the map of what has been looked at
+        self.ball_memory = []
+        self.memory_next_id = 1000
+        self.sensed = set()
+        self.captures = []
+        self.last_sense = -INF
+        self.last_map_save = 0.0
         self.jam_time = 0.0
         self.last_jam_x = None
         self.underbody_reported = -10.0
@@ -872,6 +899,8 @@ class TennisCollector(Supervisor):
     def update_ball_states(self):
         for ball in self.balls:
             ball['pos'] = list(ball['node'].getPosition())
+            if ball['pos'][2] < FLOOR_BALL_Z:
+                ball['floor_pos'] = (ball['pos'][0], ball['pos'][1])
             lx, ly, lz = self.to_robot(*ball['pos'])
             inside = (HOPPER_X[0] < lx < HOPPER_X[1] and
                       HOPPER_Y[0] < ly < HOPPER_Y[1] and
@@ -884,13 +913,28 @@ class TennisCollector(Supervisor):
                     # It is detected here (not in run_collect) because the ball
                     # crosses the hopper boundary between control frames, which
                     # is where the +1 reward and the capture log belong.
-                    if ball is self.target:
-                        self.record_experience(ball, (0.0, 0.0), 1.0, True)
+                    fx, fy = ball.get('floor_pos', (ball['pos'][0],
+                                                    ball['pos'][1]))
+                    eaten = self.consume_memory_near(fx, fy)
+                    self.captures.append({'t': round(self.sim_time, 1),
+                                          'x': round(fx, 3), 'y': round(fy, 3)})
+                    target_hit = (self.target is not None and
+                                  (eaten is self.target or
+                                   math.hypot(self.target['pos'][0] - fx,
+                                              self.target['pos'][1] - fy) < 0.6))
+                    if self.target is not None and target_hit:
+                        self.target['in_hopper'] = True
+                    if not target_hit:
+                        self.event('took in an unplanned ball at (%.2f, %.2f), '
+                                   'bin %d' % (fx, fy, self.bag_count()))
+                    else:
+                        self.record_experience(self.target, (0.0, 0.0), 1.0,
+                                               True)
                         self.carrying += 1
                         self.pickup_attempts = 0
                         self.rl_note('capture')
-                        self.event('ball captured, hopper load %d, bag %d'
-                                   % (self.carrying, self.bag_count()))
+                        self.event('ball captured, %d in the bin'
+                                   % self.bag_count())
                         self.target = None
                         self.path = []
                         self.state = self.next_state_after_pickup()
@@ -910,24 +954,189 @@ class TennisCollector(Supervisor):
                 self.pose_y + lx * s + ly * c, lz)
 
     def loose_balls(self):
-        return [b for b in self.balls
-                if not b['in_hopper'] and b['id'] not in self.unreachable_balls
-                and b['pos'][2] < FLOOR_BALL_Z
-                and not self.in_drop_zone(b['pos'][0], b['pos'][1])]
+        """Remembered balls still worth chasing (navigation never reads the
+        supervisor's ball list directly)."""
+        return [b for b in self.ball_memory
+                if not b['in_hopper'] and b['id'] not in self.unreachable_balls]
+
+    def sense_balls(self):
+        """Observe the balls inside the sensing cone and update the memory.
+
+        Ground truth only decides WHAT is visible; the robot gets a noisy
+        position, merges it with what it remembers, marks the floor it has
+        looked at, and forgets remembered balls that should be in view but are
+        not seen.
+        """
+        if self.sim_time - self.last_sense < SENSE_PERIOD:
+            return
+        self.last_sense = self.sim_time
+        seen = []
+        for ball in self.balls:
+            if ball['in_hopper'] or ball['pos'][2] >= FLOOR_BALL_Z:
+                continue
+            lx, ly, _ = self.to_robot(*ball['pos'])
+            d = math.hypot(lx, ly)
+            if (SENSE_MIN_RANGE <= d <= SENSE_RANGE and
+                    abs(math.atan2(ly, lx)) <= SENSE_HALF_FOV):
+                seen.append((ball['pos'][0] + self.rng.gauss(0.0, SENSE_NOISE),
+                             ball['pos'][1] + self.rng.gauss(0.0, SENSE_NOISE)))
+        matched = set()
+        for ox, oy in seen:
+            best, best_d = None, MEMORY_MATCH
+            for m in self.ball_memory:
+                if m['in_hopper']:
+                    continue
+                d = math.hypot(m['pos'][0] - ox, m['pos'][1] - oy)
+                if d < best_d:
+                    best, best_d = m, d
+            if best is None:
+                best = {'id': self.memory_next_id, 'pos': [ox, oy, 0.0335],
+                        'in_hopper': False, 'held': 0, 'avoid_until': 0.0,
+                        'stuck_count': 0, 'seen_n': 0, 'misses': 0,
+                        'first_seen': self.sim_time}
+                self.memory_next_id += 1
+                self.ball_memory.append(best)
+                self.event('discovered a ball near (%.2f, %.2f) - %d remembered'
+                           % (ox, oy, len(self.loose_balls())))
+            else:
+                # running average: later sightings refine the estimate. Near
+                # the robot the ball is often being pushed, so follow fast.
+                near = math.hypot(ox - self.pose_x, oy - self.pose_y) < 1.2
+                k = 0.6 if near else 1.0 / min(best['seen_n'] + 1, 5)
+                best['pos'][0] += k * (ox - best['pos'][0])
+                best['pos'][1] += k * (oy - best['pos'][1])
+            best['seen_n'] += 1
+            best['misses'] = 0
+            best['last_seen'] = self.sim_time
+            matched.add(best['id'])
+        # negative evidence: in view, not seen -> it moved or was never there
+        for m in list(self.ball_memory):
+            if m['in_hopper'] or m['id'] in matched:
+                continue
+            lx, ly, _ = self.to_robot(*m['pos'])
+            d = math.hypot(lx, ly)
+            if (SENSE_MIN_RANGE + 0.15 <= d <= SENSE_RANGE - 0.3 and
+                    abs(math.atan2(ly, lx)) <= SENSE_HALF_FOV - 0.15):
+                m['misses'] += 1
+                if m['misses'] >= MEMORY_MISSES:
+                    self.ball_memory.remove(m)
+                    if self.target is m:
+                        self.target = None
+                        self.path = []
+                    self.event('ball near (%.2f, %.2f) is gone - forgotten'
+                               % (m['pos'][0], m['pos'][1]))
+        self.mark_sensed()
+
+    def mark_sensed(self):
+        """Record every floor cell currently inside the sensing cone."""
+        cx0, cy0 = self.cell_of(self.pose_x, self.pose_y)
+        r = int(SENSE_RANGE / CELL) + 1
+        for ix in range(cx0 - r, cx0 + r + 1):
+            for iy in range(cy0 - r, cy0 + r + 1):
+                wx, wy = self.cell_center((ix, iy))
+                lx, ly, _ = self.to_robot(wx, wy)
+                d = math.hypot(lx, ly)
+                if (SENSE_MIN_RANGE <= d <= SENSE_RANGE and
+                        abs(math.atan2(ly, lx)) <= SENSE_HALF_FOV):
+                    self.sensed.add((ix, iy))
+
+    def coverage_waypoint(self):
+        """Nearest reachable floor cell that has never been looked at."""
+        xmin, xmax, ymin, ymax = self.bounds
+        m = SEARCH_MARGIN
+        best, best_d = None, INF
+        ix0, iy0 = self.cell_of(xmin + m, ymin + m)
+        ix1, iy1 = self.cell_of(xmax - m, ymax - m)
+        for ix in range(ix0, ix1 + 1):
+            for iy in range(iy0, iy1 + 1):
+                cell = (ix, iy)
+                if cell in self.sensed or cell in self.known_occ:
+                    continue
+                wx, wy = self.cell_center(cell)
+                if self.clearance(wx, wy) < ROBOT_RADIUS:
+                    continue
+                d = math.hypot(wx - self.pose_x, wy - self.pose_y)
+                if d < best_d:
+                    best, best_d = (wx, wy), d
+        return best
+
+    def coverage_fraction(self):
+        xmin, xmax, ymin, ymax = self.bounds
+        m = SEARCH_MARGIN
+        ix0, iy0 = self.cell_of(xmin + m, ymin + m)
+        ix1, iy1 = self.cell_of(xmax - m, ymax - m)
+        total = max(1, (ix1 - ix0 + 1) * (iy1 - iy0 + 1))
+        hit = sum(1 for (ix, iy) in self.sensed
+                  if ix0 <= ix <= ix1 and iy0 <= iy <= iy1)
+        return hit / float(total)
+
+    def save_map(self):
+        """Write the robot's own map and ball memory to logs/map_<world>.json."""
+        data = {
+            't': round(self.sim_time, 2),
+            'cell': CELL,
+            'bounds': list(self.bounds),
+            'coverage': round(self.coverage_fraction(), 3),
+            'occupied': sorted([list(c) for c in self.known_occ]),
+            'looked_at': sorted([list(c) for c in self.sensed]),
+            'balls': [{'id': m['id'],
+                       'x': round(m['pos'][0], 3), 'y': round(m['pos'][1], 3),
+                       'sightings': m['seen_n'],
+                       'first_seen': round(m['first_seen'], 1),
+                       'last_seen': round(m.get('last_seen', 0.0), 1),
+                       'collected': m['in_hopper']}
+                      for m in self.ball_memory],
+            'captures': self.captures,
+            'in_bin': self.count_delivered(),
+        }
+        path = os.path.join(TELEMETRY_DIR, 'map_%s.json' % self.world_tag())
+        try:
+            with open(path, 'w', encoding='utf-8') as fh:
+                json.dump(data, fh)
+        except OSError:
+            pass
+        return path
+
+    def ball_in_throat(self):
+        """Beam-break stand-in: is a ball between the fan and the bin?
+
+        A real intake would have a break-beam at the throat. Without one, a
+        ball already on the elevator is invisible to the forward sensor, so
+        the pickup timed out and the ball was "forgotten" a second before it
+        landed in the bin.
+        """
+        for ball in self.balls:
+            if ball['in_hopper']:
+                continue
+            lx, ly, _ = self.to_robot(*ball['pos'])
+            if -0.12 < lx < 0.30 and abs(ly) < 0.05:
+                return True
+        return False
+
+    def consume_memory_near(self, x, y, radius=0.6):
+        """Mark the remembered ball nearest (x, y) as collected."""
+        best, best_d = None, radius
+        for m in self.ball_memory:
+            if m['in_hopper']:
+                continue
+            d = math.hypot(m['pos'][0] - x, m['pos'][1] - y)
+            if d < best_d:
+                best, best_d = m, d
+        if best is not None:
+            best['in_hopper'] = True
+        return best
 
     def in_drop_zone(self, wx, wy):
         return (abs(wx - self.drop_x) < 0.85 and
                 abs(wy - self.drop_y) < 0.85)
 
     def count_delivered(self):
-        """Balls actually unloaded into the drop zone.
+        """Balls in the robot's bin - the goal is to keep them, not drop them.
 
-        A held ball is not delivered: counting `in_hopper` here inflated the
-        delivered total (a run could report a delivery without ever reaching
-        the zone). Held balls are reported separately by `bag`.
+        Scored from ground truth (the supervisor's ball positions), which the
+        robot itself never navigates by.
         """
-        return sum(1 for b in self.balls
-                   if self.in_drop_zone(b['pos'][0], b['pos'][1]))
+        return sum(1 for b in self.balls if b['in_hopper'])
 
     def bag_count(self):
         count = 0
@@ -1636,19 +1845,26 @@ class TennisCollector(Supervisor):
         return frontiers[:1]
 
     def run_search(self):
+        """Drive to the nearest floor that has never been looked at.
+
+        The lidar map (known_free/known_occ) fills in within seconds, so it
+        cannot tell where balls might still be; `sensed` records what the ball
+        sensor has actually covered. When everything reachable is covered and
+        nothing is remembered, the court is clear.
+        """
         if self.choose_target() is not None:
             self.state = 'SEEK'
             self.state_time = 0.0
             return
-        frontiers = self.search_waypoints(self.search_phase)
-        if not frontiers:
-            self.search_phase += 1
-            if self.search_phase > 1:
-                self.state = 'TO_DROP'
-                self.state_time = 0.0
+        wp = self.coverage_waypoint()
+        if wp is None:
+            self.event('court covered (%.0f%%), no ball left in memory - done'
+                       % (100.0 * self.coverage_fraction()))
+            self.state = 'DONE'
+            self.state_time = 0.0
             return
-        wx, wy = frontiers[0]
-        self.seek_step((wx, wy))
+        self.search_goal = wp
+        self.seek_step(wp)
 
     def ball_in_cone(self, distance, half_angle):
         best, best_d = None, INF
@@ -1669,6 +1885,9 @@ class TennisCollector(Supervisor):
     def balls_under_body(self):
         found = []
         for ball in self.loose_balls():
+            # under the body a ball cannot be seen; only trust recent sightings
+            if ball.get('last_seen', -INF) < self.sim_time - 3.0:
+                continue
             lx, ly, _ = self.to_robot(*ball['pos'])
             if UNDERBODY_X[0] <= lx < UNDERBODY_X[1] and abs(ly) < UNDERBODY_Y:
                 found.append((ball, lx, ly))
@@ -1688,9 +1907,8 @@ class TennisCollector(Supervisor):
         whole court in one trip.
         """
         if self.bag >= BAG_CAPACITY:
-            return 'TO_DROP'
-        if not self.loose_balls():
-            return 'TO_DROP'
+            self.event('bin full (%d balls) - done' % self.bag)
+            return 'DONE'
         return 'SEEK'
 
     def clamp_to_bounds(self, x, y):
@@ -1896,7 +2114,8 @@ class TennisCollector(Supervisor):
         if self.bag >= BAG_CAPACITY:
             self.target = None
             self.path = []
-            self.state = 'TO_DROP'
+            self.event('bin full (%d balls) - done' % self.bag)
+            self.state = 'DONE'
             self.state_time = 0.0
             return
 
@@ -1948,12 +2167,9 @@ class TennisCollector(Supervisor):
             self.state_time = 0.0
             self.path = []
         if self.target is None:
-            if self.loose_balls():
-                # balls remain but none is reachable; sweep the region
-                self.state = 'SEARCH'
-                self.state_time = 0.0
-            else:
-                self.state = 'TO_DROP'
+            # nothing remembered (or nothing reachable): go and look
+            self.state = 'SEARCH'
+            self.state_time = 0.0
             return
 
         self.seek_step(self.target['pos'])
@@ -2081,10 +2297,12 @@ class TennisCollector(Supervisor):
 
         # the ball can only get stuck if it slips underneath the deck; a ball
         # behind COLLECT_ABORT_X but off the floor is riding the elevator
-        if lx < COLLECT_ABORT_X and lz < FLOOR_BALL_Z:
+        if (lx < COLLECT_ABORT_X and lz < FLOOR_BALL_Z
+                and not self.ball_in_throat()):
             self.abort_pickup('ball ended under the deck at x=%.2f' % lx)
 
-        if self.state == 'COLLECT' and self.state_time > COLLECT_TIMEOUT:
+        if (self.state == 'COLLECT' and self.state_time > COLLECT_TIMEOUT
+                and not self.ball_in_throat()):
             self.abort_pickup('ball not collected after %.1fs (x=%.2f)'
                               % (self.state_time, lx))
 
@@ -2099,6 +2317,12 @@ class TennisCollector(Supervisor):
                       math.degrees(self.tilt), self.bag))
         self.set_door_rollers(0.0)
         self.set_roller(0.0)
+        if self.target is not None and lx < 0.35 and self.target in self.ball_memory:
+            # The remembered ball is "inside the intake" yet nothing was taken
+            # in: it is not where the memory says (pushed away, or already
+            # collected unnoticed). Forget it; a real ball is seen again.
+            self.ball_memory.remove(self.target)
+            self.event('ball not where remembered - forgotten')
         self.jam_time = 0.0
         self.last_jam_x = None
         if self.target is not None:
@@ -2130,7 +2354,7 @@ class TennisCollector(Supervisor):
         self.recover_time = 0.0
 
     def ball_by_id(self, bid):
-        for ball in self.balls:
+        for ball in self.ball_memory:
             if ball['id'] == bid:
                 return ball
         return None
@@ -2708,9 +2932,12 @@ class TennisCollector(Supervisor):
         print('  simulated time      %.1f s' % self.sim_time)
         print('  surface detected    %s' % self.surface_name())
         print('  final slip          %.1f %%' % (100.0 * self.slip))
-        print('  balls delivered     %d of %d'
+        print('  balls in the bin    %d of %d'
               % (self.count_delivered(), len(self.balls)))
-        print('  balls still loose   %d' % len(self.loose_balls()))
+        print('  balls remembered    %d discovered, %d still loose'
+              % (len(self.ball_memory), len(self.loose_balls())))
+        print('  court looked at     %.0f %%' % (100.0 * self.coverage_fraction()))
+        print('  map saved to        %s' % self.save_map())
         print('  peak hopper load    %d balls' % self.bag_peak)
         print('  pickup attempts     %d failed' % self.pickup_attempts)
         print('  peak tilt           %.1f deg' % math.degrees(self.peak_tilt))
@@ -2795,6 +3022,10 @@ class TennisCollector(Supervisor):
 
             self.update_ball_states()
             self.bag = self.bag_count()
+            self.sense_balls()
+            if self.sim_time - self.last_map_save > MAP_SAVE_PERIOD:
+                self.last_map_save = self.sim_time
+                self.save_map()
             self.check_attitude()
             self.check_walls()
 
@@ -3112,7 +3343,7 @@ class TennisCollector(Supervisor):
                 n = ball.get('stuck_count', 0) + 1
                 ball['stuck_count'] = n
                 if n >= STUCK_GIVE_UP:
-                    self.event('giving up on ball %d after %d stuck attempts'
+                    self.event('giving up on ball %s after %d stuck attempts'
                                % (ball['id'], n))
                     ball['avoid_until'] = INF
                     self.unreachable_balls.add(ball['id'])

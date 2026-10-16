@@ -2449,3 +2449,35 @@ into a basket). Findings on the way, each confirmed in a run:
 
 `TENNIS_NO_POLICY=1`: `mech_test` captured into the bin at 5.8 s on the first
 attempt (climb z 0.032 -> 0.146 in <1 s); `mech_test_offset` 3/3 captured.
+
+### 6.8 Keep-in-bin goal, ball memory and the robot's own map
+
+* **Goal.** No drop-off: after a capture the robot goes straight back to SEEK
+  (`BAG_CAPACITY = 14`). The run is DONE when the bin is full, or when every
+  reachable floor cell has been looked at and nothing is left in memory.
+  `count_delivered()` now counts balls in the bin.
+* **Ball memory.** Navigation no longer reads the supervisor's ball list. Every
+  0.25 s, balls inside a forward cone (0.25-2.5 m, ±60°) are *seen* with
+  ±4 cm noise — a stand-in for a camera, which was deliberately left out for
+  now. Sightings within 0.30 m update a remembered ball (fast near the robot,
+  where balls get pushed); others create one ("discovered a ball near ...").
+  A remembered ball that is in view but unseen 4 times is forgotten. A pickup
+  that times out with the remembered ball already "inside the intake" drops
+  that entry. Ground truth is still used to score and for a throat
+  beam-break stand-in (`ball_in_throat()`): a ball on the elevator is off the
+  floor and invisible, so without it the pickup timed out and the ball was
+  "forgotten" a second before it reached the bin.
+* **Map.** The lidar occupancy map was already built (`known_free`,
+  `known_occ`) but covers the court in seconds, so it cannot drive a ball
+  search. `sensed` records the floor cells the ball sensor has covered;
+  SEARCH drives to the nearest unchecked reachable cell. Every 5 s and at the
+  end, `logs/map_<world>.json` stores obstacle cells, checked cells, every
+  remembered ball (position, sightings, first/last seen, collected) and where
+  each capture happened.
+* The root Robot's token box, moved to (0, 0, 0.20) in 6.7, sat in the
+  elevator's path and jammed it; it now lives inside the lidar mast.
+
+`tennis_court_flap`, 150 s, rendered, `TENNIS_NO_POLICY=1`: **9/10 in the bin**,
+0 `error` lines, balls discovered progressively (4 in the first 7 s, the last
+at t = 124 s), court coverage 100 %. For comparison the delivery robot with
+perfect ball knowledge reached 8/10 (6.6).

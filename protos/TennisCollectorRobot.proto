@@ -25,10 +25,11 @@ PROTO TennisCollectorRobot [
     supervisor      TRUE
     controller      IS controller
     controllerArgs  IS controllerArgs
-    # token body (FINDINGS 5.3); kept inside the chassis, not at z = 0 where
-    # it sat half in the floor and dragged once the robot rode level
+    # token body (FINDINGS 5.3), hidden inside the lidar mast: at z = 0 it sat
+    # half in the floor and dragged once the robot rode level, and at
+    # (0, 0, 0.20) it stood in the elevator's path and jammed the balls
     boundingObject Pose {
-      translation 0 0 0.20
+      translation -0.28 0 0.40
       children [ Box { size 0.002 0.002 0.002 } ]
     }
     physics Physics {
