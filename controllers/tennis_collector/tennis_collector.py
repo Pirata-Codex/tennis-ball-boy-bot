@@ -246,6 +246,7 @@ WINDOW = 3.2                 # m, half-size of the local map window
 ROBOT_RADIUS = 0.30          # m, planning inflation for the bodywork
 DIAG = math.sqrt(2.0)
 REPLAN_PERIOD = 0.5          # s between A* recomputations
+MAP_MAX_TILT = math.radians(1.5)   # no obstacle memory above this tilt
 MAP_PERIOD = 0.16            # s between distance-field rebuilds
 INF = float('inf')
 
@@ -1153,20 +1154,31 @@ class TennisCollector(Supervisor):
         """
         self.window = self.window_cells()
         self.occ = set()
+        # The fans are 0.50 m up and flat, so a few degrees of pitch puts the
+        # beams on the floor inside their 8 m range. Those floor returns are
+        # fine for the live scan (it is rebuilt every time) but must not be
+        # remembered: while tilted, nothing is added to `known_occ`.
+        level = self.tilt < MAP_MAX_TILT
         for (x, y) in pts:
             c = self.cell_of(x, y)
             self.occ.add(c)
-            self.known_occ.add(c)
+            if level:
+                self.known_occ.add(c)
             self.known_free.add(c)
-        # walk each beam, marking free cells up to (not including) a hit
+        # walk each beam, marking free cells up to (not including) a hit; a
+        # beam that passes through a remembered obstacle cell clears it, so
+        # a stray return cannot stay on the map for the rest of the run
         for (x0, y0, x1, y1, hit) in rays:
+            end = self.cell_of(x1, y1)
             steps = int(math.hypot(x1 - x0, y1 - y0) / (CELL * 0.5)) + 1
             for i in range(steps + 1):
                 if hit and i == steps:
                     break
                 t = i / float(steps)
-                self.known_free.add(self.cell_of(x0 + (x1 - x0) * t,
-                                                 y0 + (y1 - y0) * t))
+                c = self.cell_of(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+                self.known_free.add(c)
+                if level and c != end and c in self.known_occ:
+                    self.known_occ.discard(c)
         # forget observed cells that have drifted out of the window
         ix0, ix1, iy0, iy1 = self.window
         ix0 -= 2
