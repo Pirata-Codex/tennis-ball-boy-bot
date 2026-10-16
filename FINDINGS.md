@@ -2569,3 +2569,41 @@ Dead reckoning stays within ~0.3 m over a 2-5 minute run here, which is enough
 for this task. On `train_run` the beams counted one ball more than ended up in
 the bin. Still not real: the lidar is still three fans (a real build would use
 one 360 deg unit), and Webots wheel contact is kinder than a real court.
+
+### 6.12 Every lidar scan was mirrored
+
+`obstacle_points_world` placed beam k at yaw - fov/2 + (k+0.5) fov/N, i.e. it
+assumed index 0 is the right-hand (-y) edge. Webots orders a range image left
+to right, like a camera, so index 0 is the +y edge. Every fan was mirrored
+about its own axis. `TENNIS_LIDAR_PROBE=1` places each beam both ways and
+scores the hits against the tennis_court walls at the start pose:
+
+| Fan | as coded | flipped |
+|---|---|---|
+| lidarLeft | 1.148 m median wall error | **0.009 m** |
+| lidarRight | 0.746 m | **0.008 m** |
+
+The bumper fan is symmetric about its axis, so its frontal range was right
+either way. Fixed in both places. The odd arc of obstacle cells in the map plot
+(6.10) was this. The robot still scored well before because the planner mostly
+needs "is the way ahead clear", which a mirror about a forward-facing axis
+preserves for the bumper, and the side fans' mirrored hits mostly land on open
+court.
+
+Also: `world_tag()` called `self.getWorld()`, which does not exist in the
+Python controller library, so every world fell back to the name `world` and
+all maps, traces and crash logs overwrote one another. It now uses
+`getWorldPath()`.
+
+Real sensing with the fixed lidar (single runs, planner):
+
+| World | 6.11 (mirrored) | Fixed |
+|---|---|---|
+| `tennis_court` | 9/10, DONE 143 s | 9/10, **DONE 77 s**, 0 wall contacts |
+| `tennis_court_flap` | 10/10, DONE 125 s | 9/10, DONE 99 s |
+| `tennis_court_dirt` | 10/10, DONE 302 s | 10/10, **DONE 200 s** |
+
+`train_run` and `mech_test_offset` were stopped by hand and are not re-measured.
+
+`docs/ALGORITHMS.md` now documents every algorithm and formula: pose, camera,
+memory, grids, A*, DWA, the state machine, the policy and its rewards.

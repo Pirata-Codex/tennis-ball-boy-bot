@@ -730,7 +730,11 @@ class TennisCollector(Supervisor):
         block and silently wrote nothing (the cause of the empty logs/ noted in
         FINDINGS section 9). Each lookup is isolated and falls back to 'world'.
         """
-        for getter in (lambda: self.getWorld().getUrl(),
+        # Robot.getWorldPath() is the real API; the getWorld() lookups below it
+        # do not exist in the Python controller library, so every world used to
+        # fall back to 'world' and they all overwrote logs/map_world.json.
+        for getter in (lambda: self.getWorldPath(),
+                       lambda: self.getWorld().getUrl(),
                        lambda: self.getWorld().getFilePath()):
             try:
                 url = getter()
@@ -1336,7 +1340,12 @@ class TennisCollector(Supervisor):
                     continue
                 hit = r < maxr * 0.999
                 rr = r if hit else maxr
-                a = yaw - fov / 2.0 + (idx + 0.5) * step
+                # Webots orders a range image left to right, like a camera:
+                # index 0 is the +y (left) edge at +fov/2. This read it the
+                # other way round, mirroring every scan about its fan axis;
+                # TENNIS_LIDAR_PROBE put the hits ~1 m off the court walls
+                # that way and within 9 mm this way (feat/real-world).
+                a = yaw + fov / 2.0 - (idx + 0.5) * step
                 # robot frame
                 rx = sx + rr * math.cos(a)
                 ry = sy + rr * math.sin(a)
@@ -2721,6 +2730,40 @@ class TennisCollector(Supervisor):
         elif self.tilt < 0.5 * TILT_WARN:
             self.tilt_warned = False
 
+    def lidar_probe(self):
+        """TENNIS_LIDAR_PROBE: which way round is a range image?
+
+        Each beam is placed in the world with index 0 at -fov/2 (as the
+        controller assumes) and at +fov/2, and both are scored against the
+        tennis_court wall faces (x = -6.2, y = +/-3.2). Prints and quits.
+        """
+        sh, ch = math.sin(self.true_h), math.cos(self.true_h)
+        for dev, sx, sy, yaw, fov, res, maxr in self.fans:
+            img = dev.getRangeImage()
+            step = fov / res
+            for label, sign in (('index0=-fov/2', 1.0), ('index0=+fov/2', -1.0)):
+                errs = []
+                for idx in range(res):
+                    r = img[idx]
+                    if r != r or r < LIDAR_MIN_RANGE or r >= maxr * 0.999:
+                        continue
+                    a = yaw + sign * (-fov / 2.0 + (idx + 0.5) * step)
+                    rx, ry = sx + r * math.cos(a), sy + r * math.sin(a)
+                    if SELF_X[0] <= rx <= SELF_X[1] and -SELF_Y <= ry <= SELF_Y:
+                        continue
+                    wx = self.true_x + rx * ch - ry * sh
+                    wy = self.true_y + rx * sh + ry * ch
+                    errs.append(min(abs(wx + 6.2), abs(wy - 3.2), abs(wy + 3.2)))
+                errs.sort()
+                med = errs[len(errs) // 2] if errs else float('nan')
+                line = ('  lidar_probe %-12s %s: %3d hits, median wall error '
+                        '%.3f m' % (dev.getName(), label, len(errs), med))
+                print(line)
+                with open(os.path.join(TELEMETRY_DIR, 'lidar_probe.txt'),
+                          'a') as fh:
+                    fh.write(line + '\n')
+        self.simulationQuit(0)
+
     def bumper_front_range(self):
         """Nearest thing in the frontal arc, or None when empty or unmounted."""
         if len(self.fans) < 3 or self.fans[2][0] is None:
@@ -2735,7 +2778,7 @@ class TennisCollector(Supervisor):
         for i, r in enumerate(img):
             if r != r or r < LIDAR_MIN_RANGE:
                 continue
-            a = -self.fans[2][4] / 2.0 + (i + 0.5) * step
+            a = self.fans[2][4] / 2.0 - (i + 0.5) * step
             if abs(a) <= 0.5:
                 saw_return = True
                 if r < best:
@@ -2982,6 +3025,8 @@ class TennisCollector(Supervisor):
             self.sim_time += self.dt
 
             self.read_pose()
+            if os.environ.get('TENNIS_LIDAR_PROBE') and self.sim_time > 1.0:
+                self.lidar_probe()
             pts, rays = self.obstacle_points_world()
             if pts:
                 self.sensor_ready = True
