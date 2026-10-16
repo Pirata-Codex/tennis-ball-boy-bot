@@ -116,20 +116,6 @@ PROTO TennisCollectorRobot [
           }
 
           # ==============================================================
-          # BIN FLOOR (visual only; not in the collision, see FINDINGS 6.6)
-          # ==============================================================
-          # bin floor plate (x=0.06 to x=0.30, z=0.002)
-          Transform {
-            translation 0.18 0 0.002
-            children [
-              Shape {
-                appearance PBRAppearance { baseColor 0.20 0.20 0.22 metalness 0.1 roughness 0.8 }
-                geometry Box { size 0.24 0.22 0.003 }
-              }
-            ]
-          }
-
-          # ==============================================================
           # STAGE 1: DUAL SIDE-PINCHING CONVEYOR BELTS (Webots Track nodes)
           # ==============================================================
           # Each belt is a 0.26 x 0.024 x 0.060 box angled 0.20 rad inward,
