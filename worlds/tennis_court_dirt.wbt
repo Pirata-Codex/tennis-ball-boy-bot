@@ -125,9 +125,13 @@ WorldInfo {
 # Kept as a second viewpoint, so it can still be picked from the viewpoint list,
 # for looking at the whole court.
 Viewpoint {
-  description  "overview"
-  orientation 1 0 0 0.85
-  position    -2 -12 8
+  description        "chase"
+  fieldOfView        0.785398
+  orientation        -0.1688 0.7363 0.6553 0.6730
+  position           -7.90 -3.70 2.00
+  follow             "tennis collector"
+  followType         "Tracking Shot"
+  followSmoothness   0.5
 }
 
 # ---- chase camera (the default) ----
@@ -138,15 +142,6 @@ Viewpoint {
 # whole court on every turn, which makes a small robot on a 12 m court very
 # hard to follow. followSmoothness damps the motion so the view glides instead
 # of snapping every step.
-Viewpoint {
-  description        "chase"
-  orientation        0.36 0.20 0.91 2.30
-  position           -7.7 -2.2 1.7
-  follow             "ROBOT"
-  followType         "Tracking Shot"
-  followSmoothness   0.85
-  fieldOfView        0.70
-}
 TexturedBackground {
 }
 TexturedBackgroundLight {

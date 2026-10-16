@@ -55,11 +55,11 @@ WorldInfo {
 Viewpoint {
   description        "chase"
   fieldOfView        0.785398
-  orientation        -0.23790039790110803 -0.24785051161151997 0.9391344550022654 5.039764592054464
-  position           -2.2 -1.4 1.4
-  follow             "ROBOT"
+  orientation        -0.1688 0.7363 0.6553 0.6730
+  position           -2.60 -1.50 2.00
+  follow             "tennis collector"
   followType         "Tracking Shot"
-  followSmoothness   0.85
+  followSmoothness   0.5
 }
 Background { skyColor [ 0.4 0.7 1 ] }
 Solid {
