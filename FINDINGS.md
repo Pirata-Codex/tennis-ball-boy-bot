@@ -2412,3 +2412,40 @@ already sank the pad to z = -0.005; only this one did not. Fixes:
 | `tennis_court_flap` 150 s, rendered | 2/10 | **8/10** (9th in the bin at 150 s; best so far, 5.51 was 4/10) |
 
 Single runs; the offset drop may be variance and needs repeats.
+
+### 6.7 Container bot: pinch-belt elevator into a raised bin (branch `feat/container-bot`)
+
+Goal changed from "deliver to the drop zone" to "keep the balls in the robot".
+The intake (V belts + fan) is unchanged; behind it a pinch-belt elevator lifts
+each ball into a raised bin on the rear deck, so captured balls rest on a bin
+floor instead of the court. Idea as in US 6079930 (a belt rolls balls up a wall
+into a basket). Findings on the way, each confirmed in a run:
+
+1. **`Track` only moves its local ±z face.** Belts stood on edge with their
+   thin side along local y gripped the ball but never conveyed it, in either
+   direction — so the V side belts of 6.6 never conveyed anything either; the
+   fan did all the work. `worlds/belt_probe.wbt` / `belt_probe2.wbt` show a
+   flat belt and a belt rolled 90° about its length both carrying a ball. Every
+   belt is now rolled so its pinching face is local ±z.
+2. **The robot sat tipped back ~2.5°.** With `centerOfMass` empty, Webots
+   derives it from the bounding objects; the mast and rear deck put it behind
+   the rear axle, so the robot rested on its rear deck with the casters 8 mm
+   off the floor. This was the "nose-up pitch" of 6.6 that turned the ledge
+   into a wall. Now `centerOfMass [ -0.02 0 0.08 ]`; pitch ~0.1°.
+3. **The root `Robot`'s token 2 mm box sat at z = 0**, half in the floor; once
+   the robot rode level it dragged and stalled the drive. Moved to z = 0.20.
+4. Fan hub raised 0.092 -> 0.108: its working height had been set *with* the
+   tilt, which lifted it ~19 mm.
+5. **Elevator geometry that works:** a horizontal floor pinch (x 0.14-0.27,
+   72 -> 64 mm) grips the ball by its equator behind the fan; a 45° incline
+   (0.36 m, 100 mm faces, 66 -> 56 mm, face shifted 8 mm up to clear the floor)
+   takes over; a **static support rail** 4 mm under the ball path stops gravity
+   sagging it down the belt faces (without it the ball sagged ~44 mm to the
+   faces' lower edge and stopped). Narrower entries (62-64 mm) present a blunt
+   end and stall the ball; a single inclined section let it roll underneath.
+6. Raised bin: deck top (z 0.09) is its floor, interior x -0.238..0.038,
+   y ±0.143 (~16 balls one layer); deck front cut back to x 0.00 to clear the
+   ball's path; front wall slotted for the elevator.
+
+`TENNIS_NO_POLICY=1`: `mech_test` captured into the bin at 5.8 s on the first
+attempt (climb z 0.032 -> 0.146 in <1 s); `mech_test_offset` 3/3 captured.

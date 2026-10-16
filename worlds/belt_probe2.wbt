@@ -1,0 +1,42 @@
+#VRML_SIM R2025a utf8
+# Diagnostic world 2 (FINDINGS 6.7): (a) a Track stood on edge, rolled 90 deg
+# so its belt face is vertical, pinching a ball against a static wall;
+# (b) a Track inclined 40 deg carrying a ball on its top face.
+EXTERNPROTO "../protos/TennisBall.proto"
+WorldInfo {
+  basicTimeStep 16
+  contactProperties [
+    ContactProperties { material1 "tennisBall" material2 "conveyorBelt" coulombFriction [ 1.8 1.8 1.8 1.8 ] }
+  ]
+}
+Solid { name "floor" translation 0 0 -0.01 children [ Shape { geometry Box { size 4 4 0.02 } } ] boundingObject Box { size 4 4 0.02 } }
+Solid { name "wall" translation 0 0.2135 0.05 children [ Shape { geometry Box { size 1 0.02 0.1 } } ] boundingObject Box { size 1 0.02 0.1 } }
+Viewpoint { position 0 -2 1 orientation 0.3 0 0 1 }
+Robot {
+  supervisor TRUE
+  controller "belt_probe"
+  children [
+    Track {
+      translation 0 0.30 0.05
+      rotation 1 0 0 1.5708
+      contactMaterial "conveyorBelt"
+      children [ Shape { geometry Box { size 1 0.1 0.02 } } ]
+      boundingObject Box { size 1 0.1 0.02 }
+      physics Physics { density -1 mass 1 }
+      device [ LinearMotor { name "edgeMotor" maxVelocity 2 } ]
+    }
+    Track {
+      translation 0 -0.3 0.3
+      rotation 0 1 0 0.6981
+      contactMaterial "conveyorBelt"
+      children [ Shape { geometry Box { size 1 0.15 0.02 } } ]
+      boundingObject Box { size 1 0.15 0.02 }
+      physics Physics { density -1 mass 1 }
+      device [ LinearMotor { name "inclineMotor" maxVelocity 2 } ]
+    }
+  ]
+  boundingObject Box { size 0.01 0.01 0.01 }
+  physics Physics { density -1 mass 0.05 }
+}
+DEF BALL_DIRECT TennisBall { name "b1" translation 0 0.2565 0.0335 }
+DEF BALL_NESTED TennisBall { name "b2" translation 0.0280 -0.3 0.3335 }

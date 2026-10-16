@@ -2,7 +2,8 @@
 # license: Apache License 2.0
 # license url: https://www.apache.org/licenses/LICENSE-2.0
 # ---------------------------------------------------------------------------
-# TennisCollectorRobot - Side Conveyor Belts + 6-Blade Fan + Low Floor
+# TennisCollectorRobot - Side belts + fan intake, pinch-belt elevator,
+# raised bin
 #
 # Chassis-local frame:  +x forward, +y left, +z up, origin on the ground
 # directly beneath the centre of the robot.
@@ -24,7 +25,12 @@ PROTO TennisCollectorRobot [
     supervisor      TRUE
     controller      IS controller
     controllerArgs  IS controllerArgs
-    boundingObject Box { size 0.002 0.002 0.002 }
+    # token body (FINDINGS 5.3); kept inside the chassis, not at z = 0 where
+    # it sat half in the floor and dragged once the robot rode level
+    boundingObject Pose {
+      translation 0 0 0.20
+      children [ Box { size 0.002 0.002 0.002 } ]
+    }
     physics Physics {
       density -1
       mass 0.05
@@ -42,7 +48,7 @@ PROTO TennisCollectorRobot [
 
           # ---- main deck (behind the bin, carrying the mast)
           Transform {
-            translation -0.15 0 0.06
+            translation -0.17 0 0.06
             children [
               Shape {
                 appearance PBRAppearance {
@@ -50,7 +56,7 @@ PROTO TennisCollectorRobot [
                   metalness 0.1
                   roughness  0.45
                 }
-                geometry Box { size 0.38 0.30 0.06 }
+                geometry Box { size 0.34 0.30 0.06 }
               }
               Transform {
                 translation 0 0 -0.035
@@ -84,29 +90,9 @@ PROTO TennisCollectorRobot [
               }
             ]
           }
-          # bin back wall
+          # entrance roof hood (clears the fan wheel top at z=0.160)
           Transform {
-            translation 0.057 0 0.0825
-            children [
-              Shape {
-                appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.014 0.24 0.125 }
-              }
-            ]
-          }
-          # bin rear lid
-          Transform {
-            translation 0.16 0 0.150
-            children [
-              Shape {
-                appearance PBRAppearance { baseColor 0.25 0.25 0.28 metalness 0.2 roughness 0.8 }
-                geometry Box { size 0.20 0.24 0.012 }
-              }
-            ]
-          }
-          # entrance roof hood (clears the fan wheel top at z=0.144)
-          Transform {
-            translation 0.34 0 0.165
+            translation 0.34 0 0.185
             children [
               Shape {
                 appearance PBRAppearance { baseColor 0.20 0.20 0.24 metalness 0.2 roughness 0.8 }
@@ -130,7 +116,7 @@ PROTO TennisCollectorRobot [
           DEF BODY_ARM_ROLLER_LEFT Track {
             name            "armRollerLeft"
             translation     0.48 0.0755 0.045
-            rotation        0 0 1 0.20
+            rotation        0.9901 0.0993 0.0993 1.5808
             contactMaterial "conveyorBelt"
             device [
               LinearMotor {
@@ -145,10 +131,11 @@ PROTO TennisCollectorRobot [
             children [
               Shape {
                 appearance PBRAppearance { baseColor 0.15 0.65 0.25 metalness 0.0 roughness 0.95 }
-                geometry Box { size 0.26 0.024 0.060 }
+                geometry Box { size 0.26 0.060 0.024 }
               }
               Transform {
                 translation 0.13 0 0
+                rotation 1 0 0 1.5708
                 children [
                   Shape {
                     appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.8 }
@@ -158,6 +145,7 @@ PROTO TennisCollectorRobot [
               }
               Transform {
                 translation -0.13 0 0
+                rotation 1 0 0 1.5708
                 children [
                   Shape {
                     appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.8 }
@@ -166,7 +154,7 @@ PROTO TennisCollectorRobot [
                 ]
               }
             ]
-            boundingObject Box { size 0.26 0.024 0.060 }
+            boundingObject Box { size 0.26 0.060 0.024 }
             physics Physics {
               density -1
               mass 0.05
@@ -176,7 +164,7 @@ PROTO TennisCollectorRobot [
           DEF BODY_ARM_ROLLER_RIGHT Track {
             name            "armRollerRight"
             translation     0.48 -0.0755 0.045
-            rotation        0 0 1 -0.20
+            rotation        -0.9901 0.0993 -0.0993 1.5808
             contactMaterial "conveyorBelt"
             device [
               LinearMotor {
@@ -191,10 +179,11 @@ PROTO TennisCollectorRobot [
             children [
               Shape {
                 appearance PBRAppearance { baseColor 0.15 0.65 0.25 metalness 0.0 roughness 0.95 }
-                geometry Box { size 0.26 0.024 0.060 }
+                geometry Box { size 0.26 0.060 0.024 }
               }
               Transform {
                 translation 0.13 0 0
+                rotation 1 0 0 1.5708
                 children [
                   Shape {
                     appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.8 }
@@ -204,6 +193,7 @@ PROTO TennisCollectorRobot [
               }
               Transform {
                 translation -0.13 0 0
+                rotation 1 0 0 1.5708
                 children [
                   Shape {
                     appearance PBRAppearance { baseColor 0.20 0.20 0.22 roughness 0.8 }
@@ -212,7 +202,7 @@ PROTO TennisCollectorRobot [
                 ]
               }
             ]
-            boundingObject Box { size 0.26 0.024 0.060 }
+            boundingObject Box { size 0.26 0.060 0.024 }
             physics Physics {
               density -1
               mass 0.05
@@ -222,9 +212,9 @@ PROTO TennisCollectorRobot [
           # ==============================================================
           # STAGE 2: 6-BLADE PLASTIC FAN WHEEL (throat scoop)
           # ==============================================================
-          # Hub at x = 0.33, z = 0.092; blade tip radius 0.052 -> lowest sweep
-          # z = 0.040; hub bottom 0.074 clears the 0.067 ball top (at 0.082 the hub
-          # bottom was 0.064 and wedged the ball, 0/1 in mech_test). 68 mm wide so it
+          # Hub at x = 0.33, z = 0.108; blade tip radius 0.052 -> lowest sweep
+          # z = 0.056, so the blades push the top ~11 mm of the ball rearward. At
+          # 0.082-0.092 on a LEVEL chassis they held the ball in front of the fan. 68 mm wide so it
           # fits inside the 75 mm belt throat with clearance on both sides.
           # Axis +y: a POSITIVE velocity moves the bottom of the wheel to -x
           # (rearward), rolling the ball under the hub into the bin (verified:
@@ -234,7 +224,7 @@ PROTO TennisCollectorRobot [
           HingeJoint {
             jointParameters HingeJointParameters {
               axis   0 1 0
-              anchor 0.33 0 0.092
+              anchor 0.33 0 0.108
             }
             device [
               RotationalMotor {
@@ -248,7 +238,7 @@ PROTO TennisCollectorRobot [
             ]
             endPoint DEF BODY_INTAKE_ROLLER Solid {
               name            "intakeRoller"
-              translation     0.33 0 0.092
+              translation     0.33 0 0.108
               contactMaterial "roller"
               children [
                 Transform {
@@ -335,6 +325,209 @@ PROTO TennisCollectorRobot [
                 damping Damping { linear 0.05 angular 0.05 }
               }
             }
+          }
+
+          # ==============================================================
+          # STAGE 3: PINCH-BELT ELEVATOR (floor -> raised bin)
+          # ==============================================================
+          # Belts stood on edge squeeze the ball by its sides and carry it up
+          # into the raised bin. Nothing has to get UNDER the ball, so there is
+          # no floor edge to wedge on (every lift that pushed a rigid ball over
+          # an edge failed, FINDINGS 5.23 / 6.6). Same idea as US 6079930, where
+          # a belt rolls the balls up a wall into a basket.
+          #  * floor section: horizontal, x 0.14-0.27, tapering 72 -> 64 mm
+          #    (ball 67 mm): the ball enters freely and is gripped by its
+          #    equator right behind the fan (a straight 62 mm entry stopped it
+          #    against the blunt belt ends);
+          #  * incline: 45 deg, 0.36 m, 100 mm faces tapering 66 -> 56 mm
+          #    (ball 67 mm; a narrower entry is blunt against the ball), its
+          #    face shifted 8 mm up so the lower front corner clears the floor
+          #    (it dragged at x 0.134). Starting it further back instead
+          #    presented a slanted end that stopped the ball., centre line through the
+          #    ball centre at x 0.17, z 0.0335, up to x -0.08, z 0.29 over the
+          #    bin. The pinched ball sags up to ~35 mm below the belt centre
+          #    line, so the faces are 100 mm tall (at 50 mm it sagged to the
+          #    face's edge and stopped) and the deck's front edge was cut back
+          #    to x 0.00 to clear it. It overlaps the floor section, so the ball is always held
+          #    by one of them (68 mm let the ball slip under it unlifted).
+          # Every belt is rolled 90 deg about its length so the face that
+          # touches the ball is the Track's local +/-z face: Webots only moves
+          # that face. Stood on edge with the thin side along local y, they
+          # gripped the ball but never conveyed it (FINDINGS 6.7).
+          # A single inclined section alone let the ball roll UNDER it: its
+          # lower edge climbed away from the floor before the ball was gripped.
+          # Track moves its contact surface along local x; both sections take a
+          # NEGATIVE velocity (rearward; up-and-rearward for the incline).
+          DEF BODY_FLOOR_BELT_LEFT Track {
+            name            "floorBeltLeft"
+            translation     0.205 0.044 0.045
+            rotation        0.9998 0.0154 0.0154 1.5710
+            contactMaterial "conveyorBelt"
+            device [
+              LinearMotor {
+                name        "floorBeltLeftMotor"
+                maxForce    8.0
+                maxVelocity 2.0
+                minPosition -1e6
+                maxPosition 1e6
+                sound ""
+              }
+            ]
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.10 0.10 0.12 metalness 0.0 roughness 0.95 }
+                geometry Box { size 0.13 0.050 0.020 }
+              }
+            ]
+            boundingObject Box { size 0.13 0.050 0.020 }
+            physics Physics {
+              density -1
+              mass 0.05
+            }
+          }
+          DEF BODY_FLOOR_BELT_RIGHT Track {
+            name            "floorBeltRight"
+            translation     0.205 -0.044 0.045
+            rotation        -0.9998 0.0154 -0.0154 1.5710
+            contactMaterial "conveyorBelt"
+            device [
+              LinearMotor {
+                name        "floorBeltRightMotor"
+                maxForce    8.0
+                maxVelocity 2.0
+                minPosition -1e6
+                maxPosition 1e6
+                sound ""
+              }
+            ]
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.10 0.10 0.12 metalness 0.0 roughness 0.95 }
+                geometry Box { size 0.13 0.050 0.020 }
+              }
+            ]
+            boundingObject Box { size 0.13 0.050 0.020 }
+            physics Physics {
+              density -1
+              mass 0.05
+            }
+          }
+          DEF BODY_LIFT_BELT_LEFT Track {
+            name            "liftBeltLeft"
+            translation     0.0427 0.0405 0.1608
+            rotation        0.8619 0.3670 -0.3500 1.7108
+            contactMaterial "conveyorBelt"
+            device [
+              LinearMotor {
+                name        "liftBeltLeftMotor"
+                maxForce    8.0
+                maxVelocity 2.0
+                minPosition -1e6
+                maxPosition 1e6
+                sound ""
+              }
+            ]
+            children [
+              Pose {
+                translation 0 0.008 0
+                children [
+                  Shape {
+                    appearance PBRAppearance { baseColor 0.10 0.10 0.12 metalness 0.0 roughness 0.95 }
+                    geometry Box { size 0.36 0.100 0.020 }
+                  }
+                ]
+              }
+            ]
+            boundingObject Pose {
+              translation 0 0.008 0
+              children [ Box { size 0.36 0.100 0.020 } ]
+            }
+            physics Physics {
+              density -1
+              mass 0.05
+            }
+          }
+          DEF BODY_LIFT_BELT_RIGHT Track {
+            name            "liftBeltRight"
+            translation     0.0427 -0.0405 0.1608
+            rotation        -0.8619 0.3670 0.3500 1.7108
+            contactMaterial "conveyorBelt"
+            device [
+              LinearMotor {
+                name        "liftBeltRightMotor"
+                maxForce    8.0
+                maxVelocity 2.0
+                minPosition -1e6
+                maxPosition 1e6
+                sound ""
+              }
+            ]
+            children [
+              Pose {
+                translation 0 -0.008 0
+                children [
+                  Shape {
+                    appearance PBRAppearance { baseColor 0.10 0.10 0.12 metalness 0.0 roughness 0.95 }
+                    geometry Box { size 0.36 0.100 0.020 }
+                  }
+                ]
+              }
+            ]
+            boundingObject Pose {
+              translation 0 -0.008 0
+              children [ Box { size 0.36 0.100 0.020 } ]
+            }
+            physics Physics {
+              density -1
+              mass 0.05
+            }
+          }
+
+          # ---- elevator support rail ----
+          # A 30 mm strip under the ball's path between the lift belts, 4 mm
+          # below the ball. Pinch friction alone let gravity sag the ball ~44 mm
+          # down the belt faces until it reached their lower edge and stopped;
+          # on the rail it rolls while the belts push it up. Lower end at
+          # x ~0.14, top 7 mm off the floor, where the floor pinch is already
+          # driving the ball onto it.
+          Transform {
+            translation 0.0134 0 0.1314
+            rotation 0 1 0 0.7854
+            children [
+              Shape {
+                appearance PBRAppearance { baseColor 0.70 0.72 0.75 metalness 0.5 roughness 0.4 }
+                geometry Box { size 0.36 0.030 0.008 }
+              }
+            ]
+          }
+          # ==============================================================
+          # RAISED BIN on the rear deck (deck top z = 0.09 is its floor)
+          # ==============================================================
+          # Interior x -0.238 .. 0.038, y +/-0.143, ~16 balls in one layer.
+          # (The deck, i.e. the floor, ends at x 0.00; the 38 mm strip in front
+          # of it is narrower than a ball.)
+          # Captured balls rest on the bin floor, not the court. The front wall
+          # has a 0.12 m slot for the elevator; the back wall stops short of
+          # the lidar mast at x = -0.28.
+          Transform {
+            translation 0.045  0.105 0.130
+            children [ Shape { appearance PBRAppearance { baseColor 0.80 0.82 0.85 metalness 0.1 roughness 0.6 transparency 0.35 } geometry Box { size 0.014 0.090 0.080 } } ]
+          }
+          Transform {
+            translation 0.045 -0.105 0.130
+            children [ Shape { appearance PBRAppearance { baseColor 0.80 0.82 0.85 metalness 0.1 roughness 0.6 transparency 0.35 } geometry Box { size 0.014 0.090 0.080 } } ]
+          }
+          Transform {
+            translation -0.245 0 0.150
+            children [ Shape { appearance PBRAppearance { baseColor 0.80 0.82 0.85 metalness 0.1 roughness 0.6 transparency 0.35 } geometry Box { size 0.014 0.30 0.120 } } ]
+          }
+          Transform {
+            translation -0.100  0.150 0.150
+            children [ Shape { appearance PBRAppearance { baseColor 0.80 0.82 0.85 metalness 0.1 roughness 0.6 transparency 0.35 } geometry Box { size 0.304 0.014 0.120 } } ]
+          }
+          Transform {
+            translation -0.100 -0.150 0.150
+            children [ Shape { appearance PBRAppearance { baseColor 0.80 0.82 0.85 metalness 0.1 roughness 0.6 transparency 0.35 } geometry Box { size 0.304 0.014 0.120 } } ]
           }
 
           # ---- lidar mast ----
@@ -574,8 +767,8 @@ PROTO TennisCollectorRobot [
         boundingObject Group {
           children [
             Transform {
-              translation -0.15 0 0.06
-              children [ Box { size 0.38 0.30 0.06 } ]
+              translation -0.17 0 0.06
+              children [ Box { size 0.34 0.30 0.06 } ]
             }
             Transform {
               translation -0.15 0 0.025
@@ -590,15 +783,7 @@ PROTO TennisCollectorRobot [
               children [ Box { size 0.30 0.014 0.125 } ]
             }
             Transform {
-              translation 0.057 0 0.0825
-              children [ Box { size 0.014 0.24 0.125 } ]
-            }
-            Transform {
-              translation 0.16 0 0.150
-              children [ Box { size 0.20 0.24 0.012 } ]
-            }
-            Transform {
-              translation 0.34 0 0.165
+              translation 0.34 0 0.185
               children [ Box { size 0.18 0.24 0.010 } ]
             }
             # (no bin floor or ledge in the collision: the chassis rides ~2 deg
@@ -606,6 +791,33 @@ PROTO TennisCollectorRobot [
             # and pins the ball under the fan; balls rest on the court instead)
             # (the conveyor belts are separate jointed Solids with their own
             # collision, so they are NOT part of the chassis bounding object)
+            # elevator support rail
+            Transform {
+              translation 0.0134 0 0.1314
+              rotation 0 1 0 0.7854
+              children [ Box { size 0.36 0.030 0.008 } ]
+            }
+            # raised bin walls (the deck box below is its floor)
+            Transform {
+              translation 0.045  0.105 0.130
+              children [ Box { size 0.014 0.090 0.080 } ]
+            }
+            Transform {
+              translation 0.045 -0.105 0.130
+              children [ Box { size 0.014 0.090 0.080 } ]
+            }
+            Transform {
+              translation -0.245 0 0.150
+              children [ Box { size 0.014 0.30 0.120 } ]
+            }
+            Transform {
+              translation -0.100 0.150 0.150
+              children [ Box { size 0.304 0.014 0.120 } ]
+            }
+            Transform {
+              translation -0.100 -0.150 0.150
+              children [ Box { size 0.304 0.014 0.120 } ]
+            }
             Transform {
               translation -0.28 0 0.30
               children [ Box { size 0.05 0.05 0.50 } ]
@@ -619,6 +831,12 @@ PROTO TennisCollectorRobot [
         physics Physics {
           density -1
           mass 12
+          # Explicit, between the rear axle (x -0.10) and the casters (x 0.15).
+          # Left empty, Webots derives it from the bounding objects, and the
+          # mast + rear deck put it BEHIND the axle: the robot sat tipped back
+          # ~2.5 deg on its rear deck with the casters 8 mm off the floor
+          # (FINDINGS 6.7).
+          centerOfMass [ -0.02 0 0.08 ]
           damping Damping { linear 0.02 angular 0.15 }
         }
       }

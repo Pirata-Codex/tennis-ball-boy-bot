@@ -100,9 +100,11 @@ SETTLE_TIME = 0.4            # s before the first drive command
 # they act as a wall and bulldoze the ball: v_belt >= 1.5 x v_robot.
 CONVEYOR_BELT_SPEED = 0.80   # m/s, inward; signs set in set_door_rollers()
 FAN_BLADE_SPEED = 24.0        # rad/s, + sweeps the bottom blades rearward
+LIFT_BELT_SPEED = 0.50       # m/s up the pinch-belt elevator
 DOOR_ROLLER_SPEED = CONVEYOR_BELT_SPEED
 COLLECT_TIMEOUT = 6.0        # s
-COLLECT_ABORT_X = 0.18       # m: closer than this the ball is under the body
+COLLECT_ABORT_X = 0.10       # m: a FLOOR ball behind this is under the deck
+                             # (deck front x 0.04; the elevator entry is at 0.17)
 
 # Overrun guard: a 67 mm ball against a 90 mm ride height lifts the wheels.
 SEEK_BRAKE_DISTANCE = 0.80
@@ -217,9 +219,12 @@ NO_TRANSIT_TIME = 8.0         # s with zero state transitions -> force a recover
 # hopper interior, robot frame (x forward, y left, z up) - the front bin.
 # A ball is "collected" once its centre is inside this box, i.e. behind the
 # door rollers.
-HOPPER_X = (0.04, 0.31)
-HOPPER_Y = (-0.11, 0.11)
-HOPPER_Z = (0.002, 0.150)
+HOPPER_X = (-0.238, 0.038)
+HOPPER_Y = (-0.143, 0.143)
+HOPPER_Z = (0.090, 0.300)
+# A ball higher than this is on its way up the elevator, not on the floor:
+# it is neither loose nor "under the body".
+FLOOR_BALL_Z = 0.06
 # How many balls the bin can usefully hold before it must be unloaded.
 #
 # This was 4, on the reasoning that the bin is "0.20 m across and a ball is
@@ -391,7 +396,7 @@ NOMINAL_PARTS = {
     'BODY_SKID_RIGHT': (0.15, -0.13, 0.03),
     'BODY_ARM_ROLLER_LEFT': (0.48, 0.0755, 0.045),
     'BODY_ARM_ROLLER_RIGHT': (0.48, -0.0755, 0.045),
-    'BODY_INTAKE_ROLLER': (0.33, 0.0, 0.092),
+    'BODY_INTAKE_ROLLER': (0.33, 0.0, 0.108),
 }
 BODY_PARTS = tuple(NOMINAL_PARTS.keys())
 
@@ -446,6 +451,10 @@ class TennisCollector(Supervisor):
         self.arm_roller_left = self.getDevice('armRollerLeftMotor')
         self.arm_roller_right = self.getDevice('armRollerRightMotor')
         self.roller = self.getDevice('intakeRoller')
+        # pinch-belt elevator from the fan up into the raised bin
+        self.lift_belts = [self.getDevice(n) for n in (
+            'floorBeltLeftMotor', 'floorBeltRightMotor',
+            'liftBeltLeftMotor', 'liftBeltRightMotor')]
         self.gate = self.getDevice('unloadGate')
         self.ball_sensor = None
         self.gps = self.getDevice('gps')
@@ -465,7 +474,8 @@ class TennisCollector(Supervisor):
         self.bumper = None
 
         for motor in (self.left_motor, self.right_motor, self.roller,
-                      self.arm_roller_left, self.arm_roller_right):
+                      self.arm_roller_left, self.arm_roller_right,
+                      *self.lift_belts):
             if motor is not None:
                 motor.setPosition(float('inf'))
                 motor.setVelocity(0.0)
@@ -902,6 +912,7 @@ class TennisCollector(Supervisor):
     def loose_balls(self):
         return [b for b in self.balls
                 if not b['in_hopper'] and b['id'] not in self.unreachable_balls
+                and b['pos'][2] < FLOOR_BALL_Z
                 and not self.in_drop_zone(b['pos'][0], b['pos'][1])]
 
     def in_drop_zone(self, wx, wy):
@@ -1428,6 +1439,17 @@ class TennisCollector(Supervisor):
             return
         self.roller.setVelocity(speed)
         self.roller_cmd = speed
+
+    def set_lift(self, speed):
+        """Drive the floor pinch and elevator belts; positive (m/s) is inward.
+
+        Every Track's local +x points forward (forward-down on the incline), so
+        all four LinearMotors take a negative velocity to carry the ball back
+        and up.
+        """
+        for motor in self.lift_belts:
+            if motor is not None:
+                motor.setVelocity(-speed)
 
     def set_door_rollers(self, speed):
         """Drive the two side conveyor belts; positive speed (m/s) is inward.
@@ -2057,8 +2079,9 @@ class TennisCollector(Supervisor):
             print('  collect: ball x=%+.3f y=%+.3f z=%.3f  belts=%.2f m/s fan=%.1f'
                   % (lx, ly, lz, CONVEYOR_BELT_SPEED, FAN_BLADE_SPEED))
 
-        # the ball can only get stuck if it slips underneath the deck
-        if lx < COLLECT_ABORT_X:
+        # the ball can only get stuck if it slips underneath the deck; a ball
+        # behind COLLECT_ABORT_X but off the floor is riding the elevator
+        if lx < COLLECT_ABORT_X and lz < FLOOR_BALL_Z:
             self.abort_pickup('ball ended under the deck at x=%.2f' % lx)
 
         if self.state == 'COLLECT' and self.state_time > COLLECT_TIMEOUT:
@@ -2810,6 +2833,10 @@ class TennisCollector(Supervisor):
                     spin = False
                 self.set_door_rollers(DOOR_ROLLER_SPEED if spin else 0.0)
                 self.set_roller(FAN_BLADE_SPEED if spin else 0.0)
+                # the elevator runs whenever the robot is working, so a ball
+                # already on it always finishes the climb into the bin
+                self.set_lift(0.0 if self.state in ('DONE', 'DOWN')
+                              else LIFT_BELT_SPEED)
                 if self.state == 'SEEK':
                     self.run_seek()
                 elif self.state == 'ALIGN':

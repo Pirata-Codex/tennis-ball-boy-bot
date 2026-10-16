@@ -1,0 +1,50 @@
+#VRML_SIM R2025a utf8
+# Diagnostic world: does a Track belt carry a ball? One belt is a direct child
+# of the Robot (as in Webots' ipr_factory conveyor), one is nested inside a
+# child Solid (as in TennisCollectorRobot). See FINDINGS 6.7.
+EXTERNPROTO "../protos/TennisBall.proto"
+WorldInfo {
+  basicTimeStep 16
+  contactProperties [
+    ContactProperties {
+      material1 "tennisBall"
+      material2 "conveyorBelt"
+      coulombFriction [ 1.8 1.8 1.8 1.8 ]
+    }
+  ]
+}
+Solid { name "floor" children [ Shape { geometry Box { size 4 4 0.02 } } ] boundingObject Box { size 4 4 0.02 } translation 0 0 -0.01 }
+Viewpoint { position 0 -2 1 orientation 0.3 0 0 1 }
+Robot {
+  supervisor TRUE
+  controller "belt_probe"
+  children [
+    Track {
+      translation 0 0.3 0.05
+      contactMaterial "conveyorBelt"
+      children [ Shape { geometry Box { size 1 0.15 0.02 } } ]
+      boundingObject Box { size 1 0.15 0.02 }
+      physics Physics { density -1 mass 1 }
+      device [ LinearMotor { name "directMotor" maxVelocity 2 } ]
+    }
+    Solid {
+      name "body"
+      children [
+        Track {
+          translation 0 -0.3 0.05
+          contactMaterial "conveyorBelt"
+          children [ Shape { geometry Box { size 1 0.15 0.02 } } ]
+          boundingObject Box { size 1 0.15 0.02 }
+          physics Physics { density -1 mass 1 }
+          device [ LinearMotor { name "nestedMotor" maxVelocity 2 } ]
+        }
+      ]
+      boundingObject Box { size 0.01 0.01 0.01 }
+      physics Physics { density -1 mass 10 }
+    }
+  ]
+  boundingObject Box { size 0.01 0.01 0.01 }
+  physics Physics { density -1 mass 0.05 }
+}
+DEF BALL_DIRECT TennisBall { name "b1" translation 0 0.3 0.0935 }
+DEF BALL_NESTED TennisBall { name "b2" translation 0 -0.3 0.0935 }
