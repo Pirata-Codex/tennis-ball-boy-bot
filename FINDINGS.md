@@ -2512,3 +2512,60 @@ Every world loads rendered with 0 `error` lines. Single runs,
 | `tennis_court_dirt` | **10/10**, DONE at 276 s, court covered 100 % |
 | `tennis_court_train` (150 s) | 4/10 |
 | `tennis_court_train_run` (150 s) | 8/10 |
+
+### 6.10 Map plot and obstacle-memory fix
+
+`tools/plot_map.py` draws `logs/map_<world>.json`. The first plot showed most of
+the court as obstacle: `known_occ` kept every lidar hit for the whole run,
+including floor returns while the body pitched (the fans are 0.50 m up and flat,
+so a few degrees of pitch puts the beams on the floor inside 8 m). Hits are no
+longer remembered above 1.5 deg tilt, and a beam that passes through a
+remembered cell clears it.
+
+### 6.11 Real-world sensing (branch `feat/real-world`)
+
+Goal: the controller decides only from sensors that can be bought, so the code
+that is tested is the code that goes on the hardware. The supervisor stays as
+the referee (scoring, trace, ball layout). `TENNIS_GROUND_TRUTH=1` restores the
+old shortcuts for comparison.
+
+| Was (cheat) | Now |
+|---|---|
+| exact pose from the supervisor | dead reckoning: wheel encoders + gyro (MPU6050-class noise, plus a per-run bias of sd 0.002 rad/s) |
+| ball positions from the supervisor inside a cone | `ballCam`: 160x120 camera, ~57 deg, on the mast, 30 deg down; yellow-green threshold + blobs, projected onto the ball-centre plane |
+| throat / capture from ball positions | `liftLow` / `liftTop` IR distance beams over the lift rail; a capture is a liftTop rising edge |
+| tilt from the supervisor | `imu` InertialUnit (roll and pitch only) |
+| self-right teleport | disabled: a tip-over ends the run |
+| GPS slip estimate | none (no GPS on the robot) |
+
+Notes from bring-up:
+
+* Webots skips the robot's own body when casting a DistanceSensor ray, so an
+  empty beam reads past the rail (0.23 m low, 0.30 m top). A ball is another
+  Solid and reads ~0.08-0.11 m. Threshold 0.15 m.
+* The robot's orange fan, seen through camera noise, passed the first colour
+  test (r/g ~1.2) and was chased as a ball. Ball felt is r/g ~0.75; the test is
+  now `0.55 g < r < g`.
+* Two latent bugs, hidden while the pose was exact, made every real-sensing run
+  end pinned at the net in WALL_BACK. (1) Out of bounds, WALL_BACK always
+  reversed, even when the nose already faced the court, so a robot whose
+  estimate put it just outside backed into the net. It now drives forward when
+  facing in. (2) `check_walls` returned before refreshing the bumper range when
+  out of bounds, so `front_range` stayed frozen at its value on entry. And
+  `drive()` refuses forward motion under `wall_contact`; the forward recovery
+  lifts that for its own command.
+
+Results (single runs, planner, `--no-rendering`):
+
+| World | Ground truth | Real sensing | Peak pose error |
+|---|---|---|---|
+| `tennis_court` | 10/10 (DONE 391 s) | 9/10 (DONE 143 s) | 0.28 m |
+| `tennis_court_flap` | 10/10 (DONE 143 s) | 10/10 (DONE 125 s) | 0.28 m |
+| `tennis_court_dirt` | - | **10/10** (DONE 302 s) | 0.21 m |
+| `tennis_court_train_run` | - | 9/10 (beam counted 10) | 0.50 m |
+| `mech_test_offset` | - | 3/3 | 0.20 m |
+
+Dead reckoning stays within ~0.3 m over a 2-5 minute run here, which is enough
+for this task. On `train_run` the beams counted one ball more than ended up in
+the bin. Still not real: the lidar is still three fans (a real build would use
+one 360 deg unit), and Webots wheel contact is kinder than a real court.

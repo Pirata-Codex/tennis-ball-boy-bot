@@ -760,9 +760,53 @@ PROTO TennisCollectorRobot [
             translation 0 0 0.30
             resolution 0.004
           }
+          # Gyro with MPU6050-class noise (~0.3 deg/s rms per sample); the
+          # controller adds a fixed per-run bias on top, as a real one has.
           Gyro {
             name "gyro"
             translation 0 0 0.30
+            lookupTable [ -50 -50 0.005, 50 50 0.005 ]
+          }
+
+          # ---------- real-world sensor set (feat/real-world) ----------
+          # IMU (BNO055-class): roll and pitch only - yaw comes from the gyro
+          InertialUnit {
+            name "imu"
+            translation 0 0 0.30
+            noise 0.003
+          }
+          # ESP32-CAM-class camera on top of the mast, pitched 30 deg down:
+          # 160x120 (QQVGA), ~57 deg horizontal field of view.
+          Camera {
+            name "ballCam"
+            translation -0.25 0 0.58
+            rotation 0 1 0 0.5236
+            fieldOfView 1.0
+            width 160
+            height 120
+            near 0.05
+            far 6
+            noise 0.02
+          }
+          # IR break-beams on the lift: each looks straight down at the
+          # support rail (normal = (0.707, 0, 0.707)) through the gap between
+          # the lift belts, 0.15 m off the rail. Empty -> ~0.146 m to the rail;
+          # a ball on the rail -> ~0.08 m. "liftLow" is 0.10 m above the rail
+          # centre's downhill side (ball entering), "liftTop" 0.12 m uphill
+          # (ball about to drop into the bin).
+          DistanceSensor {
+            name "liftLow"
+            translation 0.190 0 0.167
+            rotation 0 1 0 2.356
+            lookupTable [ 0 0 0, 0.30 0.30 0.002 ]
+            numberOfRays 1
+          }
+          DistanceSensor {
+            name "liftTop"
+            translation 0.035 0 0.322
+            rotation 0 1 0 2.356
+            lookupTable [ 0 0 0, 0.30 0.30 0.002 ]
+            numberOfRays 1
           }
         ]
         boundingObject Group {

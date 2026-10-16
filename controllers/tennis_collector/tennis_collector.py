@@ -213,6 +213,20 @@ BAG_CAPACITY = 14
 # is inside a forward sensing cone (stand-in for a camera, see FINDINGS 6.8);
 # the observed position carries noise. Sightings are merged into a memory that
 # navigation uses; the supervisor's ground truth is only used to score.
+# ---- real-world sensing (feat/real-world) ----------------------------------
+# REAL: pose from encoders + gyro, balls from the camera, captures from the
+# lift break-beams, no self-right teleport. TENNIS_GROUND_TRUTH=1 restores the
+# old supervisor shortcuts for comparison.
+REAL = os.environ.get('TENNIS_GROUND_TRUTH', '') != '1'
+CAM_POS = (-0.25, 0.0, 0.58)  # m, robot frame (matches the PROTO)
+CAM_PITCH = 0.5236            # rad, pitched down
+CAM_MIN_X = 0.30              # m: nearer than this it is the intake/lift
+CAM_MAX_RANGE = 3.5           # m from the robot centre
+CAM_MARGIN = 3                # px kept clear of the image border
+CAM_MIN_PIXELS = 2            # smallest blob counted as a ball
+BEAM_BALL = 0.15              # m: below this = ball (empty: 0.23 low, 0.30 top)
+LIFT_TRANSIT = 3.0            # s a ball may take from liftLow to liftTop
+GYRO_BIAS_SD = 0.002          # rad/s, per-run gyro bias (calibrated MPU6050)
 SENSE_RANGE = 2.5             # m
 SENSE_MIN_RANGE = 0.25        # m: closer than this the intake hides the ball
 SENSE_HALF_FOV = 1.05         # rad (~60 deg either side)
@@ -413,6 +427,17 @@ class TennisCollector(Supervisor):
         self.ball_sensor = None
         self.gps = self.getDevice('gps')
         self.gyro = self.getDevice('gyro')
+        self.imu = self.getDevice('imu')
+        self.cam = self.getDevice('ballCam')
+        self.beam_low = self.getDevice('liftLow')
+        self.beam_top = self.getDevice('liftTop')
+        for dev in (self.imu, self.beam_low, self.beam_top):
+            if dev is not None:
+                dev.enable(self.timestep)
+        if self.cam is not None:
+            # ~4 Hz, the rate an ESP32-CAM streams QQVGA frames reliably
+            self.cam.enable(self.timestep * max(1, int(round(
+                SENSE_PERIOD / self.dt))))
 
         self.fans = []
         for name, sx, sy, yaw, fov, res, maxr in FAN_DEFS:
@@ -460,11 +485,29 @@ class TennisCollector(Supervisor):
                 i += 1
         self.rng = random.Random(self.seed)
 
-        # ---- pose (supervisor truth) ----
+        # ---- pose ----
+        # The robot is placed at a known start pose (as on a real court);
+        # after that REAL mode only dead-reckons. true_* is the referee's
+        # copy, used for scoring and for measuring the estimate's drift.
         self.me = self.getSelf()
         self.pose_x = 0.0
         self.pose_y = 0.0
         self.pose_h = 0.0
+        self.true_x = self.true_y = self.true_h = 0.0
+        self.read_truth()
+        self.pose_x, self.pose_y, self.pose_h = (self.true_x, self.true_y,
+                                                 self.true_h)
+        self.dr_last = None
+        self.gyro_bias = random.Random(1000 + self.seed).gauss(0.0,
+                                                              GYRO_BIAS_SD)
+        self.pose_err = 0.0
+        self.pose_err_peak = 0.0
+        self.heading_err = 0.0
+        # lift break-beams
+        self.beam_count = 0
+        self.beam_top_was = False
+        self.beam_low_time = -INF
+        self.beam_low_was = False
         self.read_pose()
 
         # ---- bodies ----
@@ -697,19 +740,52 @@ class TennisCollector(Supervisor):
                 continue
         return 'world'
 
-    def read_pose(self):
-        """Ground-truth pose from the supervisor (prototype shortcut).
-
-        The planner cannot outrun a drifting compass, and dead-reckoned yaw
-        from a single gyro drifts. The robot is a Supervisor, so its exact pose
-        is available; using it makes pose_h trustworthy by construction. The
-        encoder/GPS integration below is kept only for the slip estimate.
-        """
+    def read_truth(self):
+        """Referee pose from the supervisor: scoring and drift measurement."""
         p = self.me.getPosition()
         m = rotation_matrix(self.me)
-        self.pose_x, self.pose_y = p[0], p[1]
+        self.true_x, self.true_y = p[0], p[1]
         # body +x axis in world is column 0 = (m[0], m[3], m[6])
-        self.pose_h = wrap_angle(math.atan2(m[3], m[0]))
+        self.true_h = wrap_angle(math.atan2(m[3], m[0]))
+
+    def read_pose(self):
+        """The robot's own pose estimate.
+
+        REAL: wheel encoders for distance, the gyro (plus a fixed per-run bias)
+        for heading - what an ESP32 with two encoder motors and an MPU6050 can
+        do. It drifts, and nothing corrects it yet; pose_err measures how far.
+        TENNIS_GROUND_TRUTH=1: the supervisor's exact pose, as before.
+        """
+        self.read_truth()
+        if not REAL:
+            self.pose_x, self.pose_y, self.pose_h = (self.true_x, self.true_y,
+                                                     self.true_h)
+            return
+        left = self.left_enc.getValue()
+        right = self.right_enc.getValue()
+        if left != left or right != right:
+            return
+        if self.dr_last is None:
+            self.dr_last = (left, right)
+            return
+        dl = (left - self.dr_last[0]) * WHEEL_RADIUS
+        dr = (right - self.dr_last[1]) * WHEEL_RADIUS
+        self.dr_last = (left, right)
+        wz = self.gyro.getValues()[2]
+        if wz == wz:
+            dh = (wz + self.gyro_bias) * self.dt
+        else:
+            dh = 0.0
+        mid = self.pose_h + 0.5 * dh
+        travel = 0.5 * (dl + dr)
+        self.pose_x += travel * math.cos(mid)
+        self.pose_y += travel * math.sin(mid)
+        self.pose_h = wrap_angle(self.pose_h + dh)
+        self.pose_err = math.hypot(self.pose_x - self.true_x,
+                                   self.pose_y - self.true_y)
+        self.heading_err = wrap_angle(self.pose_h - self.true_h)
+        if self.pose_err > self.pose_err_peak:
+            self.pose_err_peak = self.pose_err
 
     def event(self, message):
         self.events += 1
@@ -748,9 +824,11 @@ class TennisCollector(Supervisor):
         rec = {
             't': round(self.sim_time, 2),
             's': self.state,
-            'x': round(self.pose_x, 3),
-            'y': round(self.pose_y, 3),
-            'h': round(math.degrees(self.pose_h), 1),
+            'x': round(self.true_x, 3),
+            'y': round(self.true_y, 3),
+            'h': round(math.degrees(self.true_h), 1),
+            'ex': round(self.pose_x, 3),
+            'ey': round(self.pose_y, 3),
             'bag': self.bag,
             'dep': self.count_delivered(),
             'b': balls,
@@ -818,12 +896,19 @@ class TennisCollector(Supervisor):
             })
         self.update_ball_states()
 
+    def truth_to_robot(self, wx, wy, wz=0.0):
+        dx = wx - self.true_x
+        dy = wy - self.true_y
+        c, s = math.cos(self.true_h), math.sin(self.true_h)
+        return (dx * c + dy * s, -dx * s + dy * c, wz)
+
     def update_ball_states(self):
+        """Referee: which balls are really in the bin (scoring only in REAL)."""
         for ball in self.balls:
             ball['pos'] = list(ball['node'].getPosition())
             if ball['pos'][2] < FLOOR_BALL_Z:
                 ball['floor_pos'] = (ball['pos'][0], ball['pos'][1])
-            lx, ly, lz = self.to_robot(*ball['pos'])
+            lx, ly, lz = self.truth_to_robot(*ball['pos'])
             inside = (HOPPER_X[0] < lx < HOPPER_X[1] and
                       HOPPER_Y[0] < ly < HOPPER_Y[1] and
                       HOPPER_Z[0] < lz < HOPPER_Z[1])
@@ -831,38 +916,66 @@ class TennisCollector(Supervisor):
                 ball['held'] += 1
                 if ball['held'] >= 3 and not ball['in_hopper']:
                     ball['in_hopper'] = True
+                    if REAL:
+                        continue        # the robot learns of it from liftTop
                     # a target ball just entered the bin: this is the capture.
                     # It is detected here (not in run_collect) because the ball
                     # crosses the hopper boundary between control frames, which
                     # is where the +1 reward and the capture log belong.
                     fx, fy = ball.get('floor_pos', (ball['pos'][0],
                                                     ball['pos'][1]))
-                    eaten = self.consume_memory_near(fx, fy)
-                    self.captures.append({'t': round(self.sim_time, 1),
-                                          'x': round(fx, 3), 'y': round(fy, 3)})
-                    target_hit = (self.target is not None and
-                                  (eaten is self.target or
-                                   math.hypot(self.target['pos'][0] - fx,
-                                              self.target['pos'][1] - fy) < 0.6))
-                    if self.target is not None and target_hit:
-                        self.target['in_hopper'] = True
-                    if not target_hit:
-                        self.event('took in an unplanned ball at (%.2f, %.2f), '
-                                   'bin %d' % (fx, fy, self.bag_count()))
-                    else:
-                        self.record_experience(self.target, (0.0, 0.0), 1.0,
-                                               True)
-                        self.carrying += 1
-                        self.pickup_attempts = 0
-                        self.rl_note('capture')
-                        self.event('ball captured, %d in the bin'
-                                   % self.bag_count())
-                        self.target = None
-                        self.path = []
-                        self.state = self.next_state_after_pickup()
-                        self.state_time = 0.0
+                    self.on_capture(fx, fy)
             else:
                 ball['held'] = 0
+
+    def update_beams(self):
+        """Lift break-beams: liftLow = ball on the way up, liftTop = in the bin."""
+        if not REAL:
+            return
+        low = self.beam_low is not None and self.beam_low.getValue() < BEAM_BALL
+        top = self.beam_top is not None and self.beam_top.getValue() < BEAM_BALL
+        if low:
+            self.beam_low_time = self.sim_time
+        if top and not self.beam_top_was:
+            self.beam_count += 1
+            self.beam_low_time = -INF
+            # where it came from: the target if it was close ahead, otherwise
+            # the mouth of the intake
+            fx, fy, _ = self.to_world(0.40, 0.0)
+            if self.target is not None:
+                lx, ly, _ = self.to_robot(*self.target['pos'])
+                if -0.2 < lx < 1.0 and abs(ly) < 0.4:
+                    fx, fy = self.target['pos'][0], self.target['pos'][1]
+            self.on_capture(fx, fy)
+        self.beam_top_was = top
+        self.beam_low_was = low
+
+    def on_capture(self, fx, fy):
+        """A ball has gone into the bin from floor position (fx, fy)."""
+        eaten = self.consume_memory_near(fx, fy)
+        self.captures.append({'t': round(self.sim_time, 1),
+                              'x': round(fx, 3), 'y': round(fy, 3)})
+        target_hit = (self.target is not None and
+                      (eaten is self.target or
+                       math.hypot(self.target['pos'][0] - fx,
+                                  self.target['pos'][1] - fy) < 0.6))
+        if self.target is not None and target_hit:
+            self.target['in_hopper'] = True
+        if not target_hit:
+            self.event('took in an unplanned ball at (%.2f, %.2f), '
+                       'bin %d' % (fx, fy, self.bag_count()))
+        else:
+            self.record_experience(self.target, (0.0, 0.0), 1.0,
+                                   True)
+            self.carrying += 1
+            self.pickup_attempts = 0
+            self.rl_note('capture')
+            self.event('ball captured, %d in the bin'
+                       % self.bag_count())
+            self.target = None
+            self.path = []
+            self.state = self.next_state_after_pickup()
+            self.state_time = 0.0
 
     def to_robot(self, wx, wy, wz=0.0):
         dx = wx - self.pose_x
@@ -881,6 +994,95 @@ class TennisCollector(Supervisor):
         return [b for b in self.ball_memory
                 if not b['in_hopper'] and b['id'] not in self.unreachable_balls]
 
+    def cam_project(self, lx, ly, lz=0.0335):
+        """Robot-frame point -> (u, v) pixel, or None if behind the camera."""
+        if self.cam is None:
+            return None
+        th = CAM_PITCH
+        dx, dy, dz = lx - CAM_POS[0], ly - CAM_POS[1], lz - CAM_POS[2]
+        fwd = dx * math.cos(th) - dz * math.sin(th)
+        up = dx * math.sin(th) + dz * math.cos(th)
+        if fwd <= 1e-3:
+            return None
+        w, h = self.cam.getWidth(), self.cam.getHeight()
+        f = 0.5 * w / math.tan(0.5 * self.cam.getFov())
+        return (0.5 * w - f * dy / fwd, 0.5 * h - f * up / fwd)
+
+    def cam_ground(self, u, v, lz=0.0335):
+        """Pixel -> robot-frame point on the plane z = lz (a ball's centre)."""
+        w, h = self.cam.getWidth(), self.cam.getHeight()
+        f = 0.5 * w / math.tan(0.5 * self.cam.getFov())
+        left = (0.5 * w - u) / f
+        up = (0.5 * h - v) / f
+        th = CAM_PITCH
+        # camera forward (c, 0, -s), up (s, 0, c), left (0, 1, 0)
+        dx = math.cos(th) + up * math.sin(th)
+        dy = left
+        dz = -math.sin(th) + up * math.cos(th)
+        if dz >= -1e-4:
+            return None
+        t = (lz - CAM_POS[2]) / dz
+        return (CAM_POS[0] + t * dx, CAM_POS[1] + t * dy)
+
+    def in_camera_view(self, lx, ly, shrink=0):
+        """Could a ball at robot-frame (lx, ly) be seen right now?"""
+        if not (CAM_MIN_X <= lx and math.hypot(lx, ly) <= CAM_MAX_RANGE):
+            return False
+        uv = self.cam_project(lx, ly)
+        if uv is None:
+            return False
+        m = CAM_MARGIN + shrink
+        return (m <= uv[0] <= self.cam.getWidth() - m and
+                m <= uv[1] <= self.cam.getHeight() - m)
+
+    def detect_balls(self):
+        """Yellow-green blobs in the camera image -> robot-frame positions.
+
+        Plain colour thresholding plus 4-connected blobs, small enough to run
+        on an ESP32-S3 or a Pi Zero. Tennis-ball felt is bright, green > blue
+        by a wide margin and red close to green; court blue/green, clay,
+        white lines and the robot's orange parts all fail one of the tests.
+        """
+        img = self.cam.getImage()
+        if not img:
+            return []
+        w, h = self.cam.getWidth(), self.cam.getHeight()
+        mask = bytearray(w * h)
+        for i in range(w * h):
+            k = 4 * i
+            b, g, r = img[k], img[k + 1], img[k + 2]
+            if g > 90 and b < 0.55 * g and 0.55 * g < r < g:
+                mask[i] = 1
+        out = []
+        for start in range(w * h):
+            if not mask[start]:
+                continue
+            mask[start] = 0
+            stack = [start]
+            n = su = sv = 0
+            while stack:
+                i = stack.pop()
+                u, v = i % w, i // w
+                n += 1
+                su += u
+                sv += v
+                for j in ((i - 1) if u > 0 else -1,
+                          (i + 1) if u < w - 1 else -1,
+                          i - w, i + w):
+                    if 0 <= j < w * h and mask[j]:
+                        mask[j] = 0
+                        stack.append(j)
+            if n < CAM_MIN_PIXELS:
+                continue
+            g = self.cam_ground(su / n + 0.5, sv / n + 0.5)
+            if g is None:
+                continue
+            lx, ly = g
+            if lx < CAM_MIN_X or math.hypot(lx, ly) > CAM_MAX_RANGE:
+                continue
+            out.append((lx, ly))
+        return out
+
     def sense_balls(self):
         """Observe the balls inside the sensing cone and update the memory.
 
@@ -893,7 +1095,22 @@ class TennisCollector(Supervisor):
             return
         self.last_sense = self.sim_time
         seen = []
-        for ball in self.balls:
+        if REAL and self.cam is not None and os.environ.get('TENNIS_CAMDUMP'):
+            # sensor check: one frame, the detections and the beam readings
+            if not getattr(self, '_camdumped', False) and self.sim_time > 1.0:
+                self._camdumped = True
+                self.cam.saveImage(os.path.join(TELEMETRY_DIR, 'cam_check.png'),
+                                   100)
+                print('  camdump: detections (robot frame)', [
+                    (round(a, 2), round(b, 2)) for a, b in self.detect_balls()])
+            print('  camdump t=%.1f beams low %.3f top %.3f' % (
+                self.sim_time, self.beam_low.getValue(),
+                self.beam_top.getValue()))
+        if REAL and self.cam is not None:
+            for lx, ly in self.detect_balls():
+                wx, wy, _ = self.to_world(lx, ly)
+                seen.append((wx, wy))
+        for ball in (self.balls if not (REAL and self.cam) else ()):
             if ball['in_hopper'] or ball['pos'][2] >= FLOOR_BALL_Z:
                 continue
             lx, ly, _ = self.to_robot(*ball['pos'])
@@ -937,8 +1154,14 @@ class TennisCollector(Supervisor):
                 continue
             lx, ly, _ = self.to_robot(*m['pos'])
             d = math.hypot(lx, ly)
-            if (SENSE_MIN_RANGE + 0.15 <= d <= SENSE_RANGE - 0.3 and
-                    abs(math.atan2(ly, lx)) <= SENSE_HALF_FOV - 0.15):
+            if REAL and self.cam is not None:
+                visible = (lx >= CAM_MIN_X + 0.15 and
+                           d <= CAM_MAX_RANGE - 0.4 and
+                           self.in_camera_view(lx, ly, shrink=6))
+            else:
+                visible = (SENSE_MIN_RANGE + 0.15 <= d <= SENSE_RANGE - 0.3 and
+                           abs(math.atan2(ly, lx)) <= SENSE_HALF_FOV - 0.15)
+            if visible:
                 m['misses'] += 1
                 if m['misses'] >= MEMORY_MISSES:
                     self.ball_memory.remove(m)
@@ -952,14 +1175,19 @@ class TennisCollector(Supervisor):
     def mark_sensed(self):
         """Record every floor cell currently inside the sensing cone."""
         cx0, cy0 = self.cell_of(self.pose_x, self.pose_y)
-        r = int(SENSE_RANGE / CELL) + 1
+        cam = REAL and self.cam is not None
+        r = int((CAM_MAX_RANGE if cam else SENSE_RANGE) / CELL) + 1
         for ix in range(cx0 - r, cx0 + r + 1):
             for iy in range(cy0 - r, cy0 + r + 1):
                 wx, wy = self.cell_center((ix, iy))
                 lx, ly, _ = self.to_robot(wx, wy)
                 d = math.hypot(lx, ly)
-                if (SENSE_MIN_RANGE <= d <= SENSE_RANGE and
-                        abs(math.atan2(ly, lx)) <= SENSE_HALF_FOV):
+                if cam:
+                    hit = self.in_camera_view(lx, ly)
+                else:
+                    hit = (SENSE_MIN_RANGE <= d <= SENSE_RANGE and
+                           abs(math.atan2(ly, lx)) <= SENSE_HALF_FOV)
+                if hit:
                     self.sensed.add((ix, iy))
 
     def coverage_waypoint(self):
@@ -1027,6 +1255,9 @@ class TennisCollector(Supervisor):
         the pickup timed out and the ball was "forgotten" a second before it
         landed in the bin.
         """
+        if REAL:
+            return (self.beam_low_was or
+                    self.sim_time - self.beam_low_time < LIFT_TRANSIT)
         for ball in self.balls:
             if ball['in_hopper']:
                 continue
@@ -1057,9 +1288,14 @@ class TennisCollector(Supervisor):
         return sum(1 for b in self.balls if b['in_hopper'])
 
     def bag_count(self):
+        if REAL:
+            count = self.beam_count
+            if count > self.bag_peak:
+                self.bag_peak = count
+            return count
         count = 0
         for ball in self.balls:
-            lx, ly, lz = self.to_robot(*ball['pos'])
+            lx, ly, lz = self.truth_to_robot(*ball['pos'])
             if (HOPPER_X[0] < lx < HOPPER_X[1] and
                     HOPPER_Y[0] < ly < HOPPER_Y[1] and
                     HOPPER_Z[0] < lz < HOPPER_Z[1]):
@@ -1625,6 +1861,10 @@ class TennisCollector(Supervisor):
         travel = 0.5 * (dl + dr)
         self.odo_speed = travel / dt
 
+        if REAL:
+            # no GPS on the real robot (and a phone-grade one is metres off):
+            # no slip estimate either
+            return
         gps = self.gps.getValues()
         if gps[0] == gps[0]:
             # bearing of the GPS-versus-odometry error: a drift diagnostic,
@@ -1666,9 +1906,16 @@ class TennisCollector(Supervisor):
         if self.height < self.min_height:
             self.min_height = self.height
         zx, zy, zz = m[2], m[5], m[8]
-        self.pitch = math.atan2(-zx, math.sqrt(zy * zy + zz * zz))
-        self.roll = math.atan2(zy, zz)
-        self.tilt = math.acos(clamp(zz, -1.0, 1.0))
+        if REAL and self.imu is not None:
+            rpy = self.imu.getRollPitchYaw()
+            if rpy[0] == rpy[0]:
+                self.roll, self.pitch = rpy[0], -rpy[1]
+                self.tilt = math.acos(clamp(math.cos(rpy[0]) *
+                                            math.cos(rpy[1]), -1.0, 1.0))
+        else:
+            self.pitch = math.atan2(-zx, math.sqrt(zy * zy + zz * zz))
+            self.roll = math.atan2(zy, zz)
+            self.tilt = math.acos(clamp(zz, -1.0, 1.0))
         if self.tilt > self.peak_tilt:
             self.peak_tilt = self.tilt
 
@@ -2441,7 +2688,8 @@ class TennisCollector(Supervisor):
             return
         if self.fall_timer < FALL_RECOVER_TIME:
             self.drive(0.12, 0.0)
-        elif self.self_rights < FALL_MAX_ATTEMPTS:
+        elif not REAL and self.self_rights < FALL_MAX_ATTEMPTS:
+            # REAL: nobody teleports a real robot upright
             self.state = self.self_right()
         elif self.fall_timer > FALL_GIVE_UP:
             self.event('still down after %.0fs and %d self-rights - parking'
@@ -2508,6 +2756,14 @@ class TennisCollector(Supervisor):
         # so the robot could drive past xmax and wedge its arms under the net,
         # where it thrashed in RECOVER for ~90 s (FINDINGS 5.27). This is
         # independent of the lidar, so it works even when the net is not seen.
+        #
+        # The bumper range is refreshed before that early return: it used to be
+        # computed after it, so while out of bounds front_range stayed frozen
+        # at whatever it read on entry, and drive() kept forward speed at zero
+        # against an obstacle that was no longer there (feat/real-world).
+        if self.sensor_ready:
+            front = self.bumper_front_range()
+            self.front_range = front if front is not None else WINDOW
         xmin, xmax, ymin, ymax = self.bounds
         if (self.pose_x < xmin - BOUND_MARGIN or self.pose_x > xmax + BOUND_MARGIN
                 or self.pose_y < ymin - BOUND_MARGIN
@@ -2526,6 +2782,7 @@ class TennisCollector(Supervisor):
             if self.state != 'WALL_BACK':
                 self.wall_back_left = BOUND_BACK_TIME
                 self.wall_back_grace = 0.0
+                self.wall_back_bounds = True
             self.state = 'WALL_BACK'
             self.state_before_wall = 'SEEK'
             return
@@ -2536,8 +2793,6 @@ class TennisCollector(Supervisor):
         # range is the true gap to whatever the robot is about to touch. It is
         # checked directly, not only through the occupancy grid, so a thin
         # obstacle such as the net cannot slip between map rebuilds.
-        front = self.bumper_front_range()
-        self.front_range = front if front is not None else WINDOW
         buried = self.front_range <= LIDAR_MIN_RANGE
         self.min_clear = min(self.clearance(self.pose_x, self.pose_y),
                              self.front_range + 0.86 - ROBOT_RADIUS)
@@ -2552,6 +2807,7 @@ class TennisCollector(Supervisor):
             self.wall_hits += 1
             self.state_before_wall = self.state
             self.wall_back_left = WALL_BACK_TIME
+            self.wall_back_bounds = False
             self.event('WALL contact %d: clearance %.3f m, backing off'
                        % (self.wall_hits, self.min_clear))
             self.state = 'WALL_BACK'
@@ -2608,6 +2864,17 @@ class TennisCollector(Supervisor):
             self.target = None
             self.state_time = 0.0
             return
+        if getattr(self, 'wall_back_bounds', False) and abs(err) < 0.5 * math.pi:
+            # Out of bounds but already facing back in: reversing would drive
+            # further out. With dead-reckoned pose the robot reversed into the
+            # net this way and stalled there for 500 s (feat/real-world).
+            # drive() refuses forward motion under wall_contact, which the
+            # bounds guard sets, so lift it for this command; the normal
+            # clearance cap still applies.
+            self.wall_contact = False
+            self.drive(BACK_SPEED, clamp(1.2 * err, -WMAX, WMAX))
+            self.wall_contact = True
+            return
         self.drive(-BACK_SPEED, clamp(1.2 * err, -WMAX, WMAX))
 
     # ------------------------------------------------------------------
@@ -2630,7 +2897,7 @@ class TennisCollector(Supervisor):
         print('t=%6.1f  %-11s pose(%5.2f,%5.2f,%6.1f) z=%.3f roll %5.1f '
               'pitch %5.1f  clear %4.2f front %4.2f  v=%4.2f w=%+5.2f  '
               'wheel %5.2f/%5.2f  path %2d occ %4d  '
-              'slip %4.1f%%  %-18s tgt(%s) %s  bag %d del %d/%d'
+              'slip %4.1f%%  %-18s tgt(%s) %s  bag %d del %d/%d  perr %.2f'
               % (self.sim_time, self.state, self.pose_x, self.pose_y,
                  math.degrees(self.pose_h), self.height,
                  math.degrees(self.roll), math.degrees(self.pitch),
@@ -2638,7 +2905,7 @@ class TennisCollector(Supervisor):
                  self.left_motor.getVelocity(), self.right_motor.getVelocity(),
                  len(self.path), len(self.occ), 100.0 * self.slip,
                  self.surface_name(), tgt, tgt_r, self.bag,
-                 self.count_delivered(), len(self.balls)))
+                 self.count_delivered(), len(self.balls), self.pose_err))
 
     def report(self):
         print('\n=== summary ===')
@@ -2651,6 +2918,16 @@ class TennisCollector(Supervisor):
               % (len(self.ball_memory), len(self.loose_balls())))
         print('  court looked at     %.0f %%' % (100.0 * self.coverage_fraction()))
         print('  map saved to        %s' % self.save_map())
+        print('  sensing             %s' % (
+            'REAL (encoders+gyro, camera, lift beams)' if REAL
+            else 'GROUND TRUTH (supervisor shortcuts)'))
+        if REAL:
+            print('  beam-counted        %d balls' % self.beam_count)
+            print('  pose error          %.2f m now, %.2f m peak, heading '
+                  '%+.1f deg (gyro bias %+.2f deg/s)'
+                  % (self.pose_err, self.pose_err_peak,
+                     math.degrees(self.heading_err),
+                     math.degrees(self.gyro_bias)))
         print('  peak hopper load    %d balls' % self.bag_peak)
         print('  pickup attempts     %d failed' % self.pickup_attempts)
         print('  peak tilt           %.1f deg' % math.degrees(self.peak_tilt))
@@ -2734,6 +3011,7 @@ class TennisCollector(Supervisor):
                 continue
 
             self.update_ball_states()
+            self.update_beams()
             self.bag = self.bag_count()
             self.sense_balls()
             if self.sim_time - self.last_map_save > MAP_SAVE_PERIOD:
